@@ -21,6 +21,7 @@ import torchvision.models as models
 
 #For LocEm
 from loss import locemLoss
+from nn_view import View
 
 #From ImagenetVid Generator
 from torchvision import transforms as trfms
@@ -62,7 +63,7 @@ parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
-parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
+parser.add_argument('--wd', '--weight-decay', default= 0.0005, type=float,
                     metavar='W', help='weight decay (default: 1e-4)',
                     dest='weight_decay')
 parser.add_argument('-p', '--print-freq', default=10, type=int,
@@ -129,7 +130,10 @@ def class_decoder(pred_tensor,target_tensor,accuracy):
 
     #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
     #gamma should be at 40?
-    class_mask_target = (target_tensor[:,:,:,B*X+C]==1) | (target_tensor[:,:,:,B*X+C]==2) | (target_tensor[:,:,:,B*X+C]==3)
+    #class_mask_target = (target_tensor[:,:,:,B*X+C]==1) | (target_tensor[:,:,:,B*X+C]==2) | (target_tensor[:,:,:,B*X+C]==3)
+
+    #Alternate class_mask_target
+    class_mask_target = (target_tensor[:,:,:,4]==1) & (target_tensor[:,:,:,9]==1)
 
     #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
     pred_tensor_gamma = pred_tensor[class_mask_target]
@@ -239,9 +243,18 @@ def main_worker(gpu, ngpus_per_node, args):
     #BUT SOME PREDICTED VALUES MIGHT NEED TO BE NEGATIVE
     #https://www.reddit.com/r/deeplearning/comments/9z50qi/confused_about_yolo_loss_function/
 
-    model.fc = nn.Sequential(
+    '''model.fc = nn.Sequential(
         nn.Linear(num_ftrs, final_layer_units),
         nn.Sigmoid()
+    )'''
+    num_classes = S*S*(B*X+C+beta)
+    model.fc = nn.Sequential(
+        nn.Linear(num_ftrs,5120),
+        nn.LeakyReLU(0.1, inplace=True),
+        nn.Dropout(0.5, inplace=False),
+        nn.Linear(5120,num_classes),
+        nn.Sigmoid(),
+        View((-1,S,S,B*X+C+beta))
     )
     print(model)
 
@@ -756,6 +769,14 @@ def adjust_learning_rate(optimizer, epoch, args):
     #lr = args.lr * (0.1 ** (epoch // 30))
     lr = args.lr
     #lr = max(new_lr,0.001)
+
+    #YOLO Training Schedule
+    if epoch <=75:
+        lr = 0.01
+    elif epoch > 75 & epoch < 106:
+        lr = 0.001
+    else:
+        lr = 0.0001
         
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
