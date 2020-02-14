@@ -154,14 +154,14 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         #Custom for locem_multihead
         num_classes = 7*7*(2*5+30+64)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.fc_yolo = nn.Linear(512 * block.expansion, num_classes)
         self.sigmoid = nn.Sigmoid()
 
         #Triplet Part
         self.conv1x1 = nn.Conv2d(2048, 2048, kernel_size=(1,1), stride=1, padding=0,
                                bias=False)
         self.trip_num_classes = 7*7*(2*5+64) #S*S*(B*5+beta)
-        self.fc_triplet = nn.Linear(2048,trip_num_classes)
+        self.fc_triplet = nn.Linear(2048,self.trip_num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -224,7 +224,7 @@ class ResNet(nn.Module):
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = self.fc(x)
+        x = self.fc_yolo(x)
         x = self.sigmoid(x)
 
         return x,y
@@ -236,9 +236,36 @@ class ResNet(nn.Module):
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
     model = ResNet(block, layers, **kwargs)
     if pretrained:
-        state_dict = load_state_dict_from_url(model_urls[arch],
+        '''state_dict = load_state_dict_from_url(model_urls[arch],
                                               progress=progress)
-        model.load_state_dict(state_dict)
+        
+        model.load_state_dict(state_dict)'''
+
+        #Overwriting fetching pretrained weights
+        from torch.utils import model_zoo
+        from collections import OrderedDict
+
+        pretrained_state = model_zoo.load_url(model_urls['resnet50'])
+        model_state = model.state_dict()
+
+        #Testing
+        test = {k:v for k,v in pretrained_state.items()}
+        if not list(test.items())==list(pretrained_state.items()):
+            print('State items did not match')
+            sys.exit(0)
+
+        #Findind common layers between pretrained_state and model_state
+        transfer_states = OrderedDict({k:v for k,v in pretrained_state.items() if k in model_state and v.size() == model_state[k].size() })
+
+        #Updating model_state with transfer_states
+        model_state.update(transfer_states)
+
+        #Loading updated states into model
+        model.load_state_dict(model_state)
+
+        
+        
+
     return model
 
 
