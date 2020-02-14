@@ -210,8 +210,6 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
         #model = models.__dict__[args.arch](pretrained=True)
-        print("The modified model may not work with pretrained weights")
-        sys.exit(0)
         model = resnet50(pretrained=True)
     
     else:
