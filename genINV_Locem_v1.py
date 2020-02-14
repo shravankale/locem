@@ -101,6 +101,8 @@ class ImageNetVID(data.Dataset):
     def encodeTarget_locem(self,target_bbox,target_class,target_id):
         '''
             target_bbox = [xmax,xmin,ymax,ymin] #~~ [x2,x1,y2,y1]
+            target_class = int
+            target_id = int
             target_output = (S,S,B*X+C+gama)
 
         '''
@@ -329,7 +331,7 @@ class ImageNetVID(data.Dataset):
         #sample_img = cropImage(sample,sample_img,sample.xmax,sample.xmin,sample.ymax,sample.ymin)
         sample_bbox = rescaleBoundingBox(sample.height,sample.width,self.network_dim,sample.xmax,sample.xmin,sample.ymax,sample.ymin)
         #sample_bbox = [sample.xmax,sample.xmin,sample.ymax,sample.ymin]
-        sample_class = torch.tensor(sample.cat_code-1)
+        sample_class = sample.cat_code-1
 
         sample_target = self.encodeTarget_locem(sample_bbox,sample_class,1)
 
@@ -351,7 +353,7 @@ class ImageNetVID(data.Dataset):
         #positive_img = cropImage(positive,positive_img,positive.xmax,positive.xmin,positive.ymax,positive.ymin)
         positive_bbox = rescaleBoundingBox(positive.height,positive.width,self.network_dim,positive.xmax,positive.xmin,positive.ymax,positive.ymin)
         #positive_bbox = [positive.xmax,positive.xmin,positive.ymax,positive.ymin]
-        positive_class = torch.tensor(positive.cat_code-1)
+        positive_class = positive.cat_code-1
         #positive_id = sample_id # Anchor and Positive have same trackIDS
         positive_target = self.encodeTarget_locem(positive_bbox,positive_class,2)
 
@@ -374,7 +376,7 @@ class ImageNetVID(data.Dataset):
         #negative_img = cropImage(negative,negative_img,negative.xmax,negative.xmin,negative.ymax,negative.ymin)
         negative_bbox = rescaleBoundingBox(negative.height,negative.width,self.network_dim,negative.xmax,negative.xmin,negative.ymax,negative.ymin)
         #negative_bbox = [negative.xmax,negative.xmin,negative.ymax,negative.ymin]
-        negative_class = torch.tensor(negative.cat_code-1)
+        negative_class = negative.cat_code-1
 
         #fetch id
         '''negative_id = self.unique_keys[
