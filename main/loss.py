@@ -235,6 +235,7 @@ class locemLoss(nn.Module):
 
         # Class probability loss for the cells which contain objects.
         loss_class = F.mse_loss(class_pred, class_target, reduction='sum')
+        #loss_class = F.nll_loss(class_pred, class_target, reduction='sum')
 
         # Total loss
         #CHEK! Should triplet_loss be divided by the number of samples?
