@@ -522,101 +522,6 @@ def main_worker(gpu, ngpus_per_node, args):
     print('Max top5: ',max(metrics_val_all_epochs['top5']),np.argmax(np.array(metrics_val_all_epochs['top5'])))
 
 
-    
-
-    
-
-
-def train(train_loader, model, criterion, optimizer, epoch, args, writer):
-    batch_time = AverageMeter('Time', ':6.3f')
-    data_time = AverageMeter('Data', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    loss_class_m = AverageMeter('Class_Loss',':.4e')
-    loss_triplet_m = AverageMeter('Triplet_Loss',':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
-    progress = ProgressMeter(
-        len(train_loader),
-        [batch_time, data_time, losses,loss_class_m,loss_triplet_m, top1, top5],
-        prefix="Epoch: [{}]".format(epoch))
-
-    
-
-    # switch to train mode
-    model.train()
-
-
-    end = time.time()
-    for i, (images, target) in enumerate(train_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
-        if args.gpu is not None:
-            images = images.cuda(args.gpu, non_blocking=True)
-        target = target.cuda(args.gpu, non_blocking=True)
-
-        # compute output
-        output = model(images)
-        #output = output.view(-1, S, S, 5 * B + C + beta)
-        #Sigmoid for box+conf
-        #softmax = nn.Softmax(dim=1)
-        #sigmoid = nn.Sigmoid()
-        #output[:,:,:,:X*B] = sigmoid(output[:,:,:,:X*B])
-        #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C])
-        #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C]).requires_grad
-        #output[:,:,:,X*B+C:] = sigmoid(output[:,:,:,X*B+C:])
-        loss, loss_class, loss_triplet = criterion(output, target)
-
-        # measure accuracy #NEW! change accuracy to decodeTarget from the dataset class
-        # You can reuse accuracy and pass it the class_pred,target_pred but those need to be in the right format for accuracy to work
-        #acc1, acc5 = accuracy(output, target, topk=(1, 5))
-        acc1, acc5 = class_decoder(output,target,accuracy)
-
-        #record loss
-        losses.update(loss.item(), 1)
-        loss_class_m.update(loss_class.item(),1)
-        loss_triplet_m.update(loss_triplet.item(),1)
-
-        top1.update(acc1[0], 1)
-        top5.update(acc5[0], 1)
-
-        # compute gradient and do SGD step
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        if i % args.print_freq == 0:
-            progress.display(i)
-
-    
-
-    if isinstance(top1.avg,int):
-        t1 = top1.avg
-        t5 = top5.avg
-    else:
-        t1 = top1.avg.item()
-        t5 = top5.avg.item()
-
-    writer.add_scalar('Train/Loss', losses.avg, epoch)
-    writer.add_scalar('Train/Class_Loss', loss_class_m.avg, epoch)
-    writer.add_scalar('Train/Triplet_Loss', loss_triplet_m.avg, epoch)
-    writer.add_scalar('Train/Accuracy/Top1', t1, epoch)
-    writer.add_scalar('Train/Accuracy/Top5', t5, epoch)
-    writer.flush()
-    
-    avg_metrics_epoch = {
-        'batch_time': batch_time.avg,
-        'data_time': data_time.avg,
-        'losses': losses.avg,
-        'top1': t1,
-        'top5': t5
-    }
-
-    return avg_metrics_epoch
-
 def compute_average_precision(recall, precision):
     """ Compute AP for one class.
     Args:
@@ -626,7 +531,6 @@ def compute_average_precision(recall, precision):
         (float) average precision (AP) for the class.
     """
     # AP (AUC of precision-recall curve) computation using all points interpolation.
-    # For mAP computation, you can find a great explaination below.
     # https://github.com/rafaelpadilla/Object-Detection-Metrics
 
     recall = np.concatenate(([0.0], recall, [1.0]))
