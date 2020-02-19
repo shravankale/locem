@@ -6,6 +6,8 @@ from torch.utils.tensorboard import SummaryWriter
 
 import pandas as pd
 
+from .nn_view import View
+
 class locEmDetector():
 
     def __init__(self,
@@ -13,7 +15,7 @@ class locEmDetector():
         conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,
         gpu_id=0):
 
-        map_vid = pd.read_pickle("../../data/map_vid.pkl")
+        map_vid = pd.read_pickle("../data/map_vid.pkl")
         self.class_name_list = list(map_vid['category_name'])
 
         self.S, self.B, self.C, self.beta = 7,2,30,64
@@ -50,7 +52,7 @@ class locEmDetector():
             right, bottom = int(right_bottom[0]), int(right_bottom[1]) 
             x1,y1,x2,y2 = left, top, bottom, right
     
-    return 0
+        return 0
 
 
 
@@ -58,17 +60,20 @@ class locEmDetector():
 
     def getModel(self,model_path):
 
+        S,B,C,beta=self.S, self.B, self.C, self.beta
+        X=5
+
         print("Loading model from ",model_path)
         model = models.__dict__['resnet50']()
         num_ftrs = model.fc.in_features
 
         num_classes = S*S*(B*X+C+beta)
         model.fc = nn.Sequential(
-            nn.Linear(num_ftrs,5120),
-            nn.LeakyReLU(0.1, inplace=True),
-            #nn.ReLU(),
-            nn.Dropout(0.5, inplace=False),
-            nn.Linear(5120,num_classes),
+            nn.Linear(num_ftrs,4096),
+            #nn.LeakyReLU(0.1, inplace=True),
+            nn.ReLU(),
+            #nn.Dropout(0.5, inplace=False),
+            nn.Linear(4096,num_classes),
             nn.Sigmoid(),
             View((-1,S,S,B*X+C+beta))
         )
@@ -91,15 +96,19 @@ class locEmDetector():
     def detect(self,img,image_size=224):
 
         '''
-        img = tensor(3,224,224)
+        img = tensor(1,3,224,224)
 
         Return: 
         boxes_detected: (list of tuple) box corner list like [((x1, y1), (x2, y2))_obj1, ...]. Re-scaled for original input image size.
             class_names_detected: (list of str) list of class name for each detected boxe.
             probs_detected: (list of float) list of probability(=confidence x class_score) for each detected box.
         '''
-
+        h,w = image_size, image_size
+    
         S,B,C,beta = self.S, self.B, self.C, self.beta
+
+        #Set model to train
+        self.loceEm.eval()
 
         with torch.no_grad():
             pred_tensor = self.loceEm(img)
@@ -109,7 +118,7 @@ class locEmDetector():
         boxes_normalized_all, class_labels_all, confidences_all, class_scores_all, embeddings_all = self.decode(pred_tensor)
 
         if boxes_normalized_all.size(0) == 0:
-            return [], [], [] # if no box found, return empty lists.
+            return [], [], [], [] # if no box found, return empty lists.
         
         # Apply non maximum supression for boxes of each class.
         boxes_normalized, class_labels, probs, embeds = [], [], [], []
