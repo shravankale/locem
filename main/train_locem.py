@@ -8,6 +8,7 @@ import numpy as np
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
 import torch.distributed as dist
@@ -18,6 +19,8 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+torch.autograd.set_detect_anomaly(True)
+
 
 #For LocEm
 from loss import locemLoss
@@ -59,11 +62,11 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
+parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
-parser.add_argument('--wd', '--weight-decay', default= 0.0005, type=float,
+parser.add_argument('--wd', '--weight-decay', default= 1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)',
                     dest='weight_decay')
 parser.add_argument('-p', '--print-freq', default=10, type=int,
@@ -144,7 +147,8 @@ def class_decoder(pred_tensor,target_tensor,accuracy):
     target_tensor_gamma = target_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
 
     #Finds the class label
-    target = torch.argmax(target_tensor_gamma, dim=1) #[n_objects,1]
+    target = torch.argmax(target_tensor_gamma, dim=1)  #[n_objects,1]
+    target = target.view(-1,1)
     output = pred_tensor_gamma #[n_objects,C]
 
     acc1, acc5 = accuracy(output, target, topk=(1, 5))
@@ -249,10 +253,11 @@ def main_worker(gpu, ngpus_per_node, args):
     )'''
     num_classes = S*S*(B*X+C+beta)
     model.fc = nn.Sequential(
-        nn.Linear(num_ftrs,5120),
-        nn.LeakyReLU(0.1, inplace=True),
-        nn.Dropout(0.5, inplace=False),
-        nn.Linear(5120,num_classes),
+        nn.Linear(num_ftrs,4096),
+        #nn.LeakyReLU(0.1, inplace=True),
+        nn.ReLU(),
+        #nn.Dropout(0.5, inplace=False),
+        nn.Linear(4096,num_classes),
         nn.Sigmoid(),
         View((-1,S,S,B*X+C+beta))
     )
@@ -523,14 +528,20 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
     for i, (images, target) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
-
         if args.gpu is not None:
             images = images.cuda(args.gpu, non_blocking=True)
         target = target.cuda(args.gpu, non_blocking=True)
 
         # compute output
         output = model(images)
-        output = output.view(-1, S, S, 5 * B + C + beta)
+        #output = output.view(-1, S, S, 5 * B + C + beta)
+        #Sigmoid for box+conf
+        #softmax = nn.Softmax(dim=1)
+        #sigmoid = nn.Sigmoid()
+        #output[:,:,:,:X*B] = sigmoid(output[:,:,:,:X*B])
+        #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C])
+        #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C]).requires_grad
+        #output[:,:,:,X*B+C:] = sigmoid(output[:,:,:,X*B+C:])
         loss, loss_class, loss_triplet = criterion(output, target)
 
         # measure accuracy #NEW! change accuracy to decodeTarget from the dataset class
@@ -539,12 +550,12 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         acc1, acc5 = class_decoder(output,target,accuracy)
 
         #record loss
-        losses.update(loss.item(), images.size(0))
-        loss_class_m.update(loss_class.item(),images.size(0))
-        loss_triplet_m.update(loss_triplet.item(),images.size(0))
+        losses.update(loss.item(), 1)
+        loss_class_m.update(loss_class.item(),1)
+        loss_triplet_m.update(loss_triplet.item(),1)
 
-        top1.update(acc1[0], images.size(0))
-        top5.update(acc5[0], images.size(0))
+        top1.update(acc1[0], 1)
+        top5.update(acc5[0], 1)
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -609,13 +620,20 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
     with torch.no_grad():
         end = time.time()
         for i, (images, target) in enumerate(val_loader):
+            
             if args.gpu is not None:
                 images = images.cuda(args.gpu, non_blocking=True)
             target = target.cuda(args.gpu, non_blocking=True)
 
             # compute output
             output = model(images)
-            output = output.view(-1, S, S, 5 * B + C + beta)
+            #output = output.view(-1, S, S, 5 * B + C + beta)
+            #softmax = nn.Softmax(dim=1)
+            #sigmoid = nn.Sigmoid()
+            #output[:,:,:,:X*B] = sigmoid(output[:,:,:,:X*B])
+            #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C])
+            #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C]).requires_grad
+            #output[:,:,:,X*B+C:] = sigmoid(output[:,:,:,X*B+C:])
             loss, loss_class, loss_triplet = criterion(output, target)
 
             # measure accuracy and record loss
@@ -623,12 +641,12 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
             #acc1, acc5 = accuracy(output, target, topk=(1, 5))
             acc1, acc5 = class_decoder(output,target,accuracy)
 
-            losses.update(loss.item(), images.size(0))
-            loss_class_m.update(loss_class.item(),images.size(0))
-            loss_triplet_m.update(loss_triplet.item(),images.size(0))
+            losses.update(loss.item(), 1)
+            loss_class_m.update(loss_class.item(),1)
+            loss_triplet_m.update(loss_triplet.item(),1)
 
-            top1.update(acc1[0], images.size(0))
-            top5.update(acc5[0], images.size(0))
+            top1.update(acc1[0], 1)
+            top5.update(acc5[0], 1)
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -771,9 +789,9 @@ def adjust_learning_rate(optimizer, epoch, args):
     #lr = max(new_lr,0.001)
 
     #YOLO Training Schedule
-    if epoch <=75:
+    if epoch <=10:
         lr = 0.01
-    elif epoch > 75 & epoch < 106:
+    elif epoch > 10 and epoch < 106:
         lr = 0.001
     else:
         lr = 0.0001
