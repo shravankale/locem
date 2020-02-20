@@ -5,6 +5,7 @@ import shutil
 import time
 import warnings
 import numpy as np
+import pandas as pd
 
 import torch
 import torch.nn as nn
@@ -38,6 +39,7 @@ sys.path.append('..')
 #For Eval
 from collections import defaultdict
 from genINV_Locem_Eval import ImageNetVID
+from detect_locem import locEmDetector
 
 from statistics import mean 
 import pickle
@@ -57,7 +59,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                         ' (default: resnet18)')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=90, type=int, metavar='N',
+parser.add_argument('--epochs', default=300, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
@@ -98,7 +100,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
-parser.add_argument('-en','--experiment_name', type=str, help="Name of the experiment")
+parser.add_argument('-ep','--experiment_path', type=str, help="Name of the experiment that contains the best model")
 #parser.add_argument('-pd','--path_to_disk',default='/disk/shravank/imageNet_ResNet50_savedModel/', type=str, help="Path to disk")
 
 
@@ -124,61 +126,12 @@ def rescaleBoundingBox(height,width,rescaled_dim,xmax,xmin,ymax,ymin):
     ymin = int(ymin * scale_y)
     
     return [xmax,xmin,ymax,ymin]
-    
-
-def collate_fn(data):
-        
-    images_list,target_list = [],[]
-    batch_size = len(data)
-    
-    for batch in range(batch_size):
-        images_list.append(data[batch][0])
-        target_list.append(data[batch][1])
-    
-    images = torch.cat(images_list,dim=0)
-    targets = torch.cat(target_list,dim=0)
-    
-    return images,targets
-
-def class_decoder(pred_tensor,target_tensor,accuracy):
-
-    '''
-        Args:
-        Out:
-    '''
-
-    #S,B,C,X,beta,gamma = self.S,self.B,self.C,self.X,self.beta,self.gamma
-
-    #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
-    #gamma should be at 40?
-    #class_mask_target = (target_tensor[:,:,:,B*X+C]==1) | (target_tensor[:,:,:,B*X+C]==2) | (target_tensor[:,:,:,B*X+C]==3)
-
-    #Alternate class_mask_target
-    class_mask_target = (target_tensor[:,:,:,4]==1) & (target_tensor[:,:,:,9]==1)
-
-    #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
-    pred_tensor_gamma = pred_tensor[class_mask_target]
-    pred_tensor_gamma = pred_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-    #class_mask_target tensor is used to identify the gamma boxes in target_tensor
-    target_tensor_gamma = target_tensor[class_mask_target]
-    target_tensor_gamma = target_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-    #Finds the class label
-    target = torch.argmax(target_tensor_gamma, dim=1)  #[n_objects,1]
-    target = target.view(-1,1)
-    output = pred_tensor_gamma #[n_objects,C]
-
-    acc1, acc5 = accuracy(output, target, topk=(1, 5))
-
-    return acc1, acc5
-        
 
 def main():
     args = parser.parse_args()
 
     global path_to_disk
-    path_to_disk = path_to_disk + args.experiment_name + '/'
+    path_to_disk = path_to_disk + args.experiment_path + '/'
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -237,26 +190,6 @@ def main_worker(gpu, ngpus_per_node, args):
         print("=> creating model '{}'".format(args.arch))
         model = models.__dict__[args.arch]()
 
-
-    #model = models.resnet50()
-    
-   
-
-    final_layer_units = S*S*(B*X+C+beta)
-
-    #Sets classes to 30
-    num_classes = 30
-    
-    '''if not model.fc.weight.size()[0] == num_class:
-        # Replace last layer
-        print(model.fc)
-        model.fc = torch.nn.Linear(2048, num_class)
-        print(model.fc)
-    else:
-        pass'''
-    '''for param in model.parameters():
-        param.requires_grad = False'''
-    
     num_ftrs = model.fc.in_features
     #model.fc = nn.Linear(num_ftrs, final_layer_units)
 
@@ -265,10 +198,7 @@ def main_worker(gpu, ngpus_per_node, args):
     #BUT SOME PREDICTED VALUES MIGHT NEED TO BE NEGATIVE
     #https://www.reddit.com/r/deeplearning/comments/9z50qi/confused_about_yolo_loss_function/
 
-    '''model.fc = nn.Sequential(
-        nn.Linear(num_ftrs, final_layer_units),
-        nn.Sigmoid()
-    )'''
+    
     num_classes = S*S*(B*X+C+beta)
     model.fc = nn.Sequential(
         nn.Linear(num_ftrs,4096),
@@ -281,16 +211,6 @@ def main_worker(gpu, ngpus_per_node, args):
     )
     print(model)
 
-
-    '''model.fc = nn.Sequential(
-        nn.Linear(num_ftrs,1024),
-        nn.ReLU(),
-        #nn.Linear(2048,2048),
-       # nn.ReLU(),
-        nn.Linear(1024,num_classes)
-    )'''
-
-    #print(model)
     
 
     if args.distributed:
@@ -356,9 +276,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    # Data loading code
-    '''traindir = os.path.join(args.data, 'train')
-    valdir = os.path.join(args.data, 'val')'''
+
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
@@ -367,159 +285,40 @@ def main_worker(gpu, ngpus_per_node, args):
     val_dataset = "../../data/metadata_imgnet_vid_val_n2.pkl"
     root_datasets = "../../../../datasets/"
 
-    '''train_dataset = datasets.ImageFolder(
-        traindir,
-        transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ]))'''
 
-    transform_train = trfms.Compose([
+    transform = trfms.Compose([
         #add random crop
         #trfms.RandomHorizontalFlip(),
-        trfms.ColorJitter(0.2, 0.2, 0.2),
-        trfms.ToTensor(),
-        normalize
-    ])
-    
-    transform_val = trfms.Compose([
+        #trfms.ColorJitter(0.2, 0.2, 0.2),
         trfms.ToTensor(),
         normalize
     ])
     
     #Generators
-    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',transform=transform_train)
-    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',transform=transform_val)
+    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',transform=transform)
+    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',transform=transform)
 
+    train_loader = DataLoader(gen_train,batch_size=1,num_workers=args.workers,shuffle=False)
+    #val_loader = DataLoader(gen_val,batch_size=1,shuffle=False)
 
-    if args.distributed:
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
-    else:
-        train_sampler = None
+    detector = locEmDetector(args.experiment_path)
+    aps = new_validate(train_loader, detector, mode='train')
 
-    '''train_loader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-        num_workers=args.workers, pin_memory=True, sampler=train_sampler)'''
+    print('Mean APS',np.mean(aps))
 
-    train_loader = DataLoader(gen_train,batch_size=args.batch_size,num_workers=args.workers,shuffle=True,collate_fn=collate_fn)
-
-
-    '''tl = iter(train_loader)
-    b = next(tl)
-    print(b[0].shape,b[1])
-
-    import sys
-    sys.exit(0)'''
-
-    '''val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True)'''
-
-    val_loader = DataLoader(gen_val,batch_size=256,collate_fn=collate_fn)
-    #val_loader = DataLoader(gen_val,batch_size=119/154,,num_workers=11)
-
-    writer = SummaryWriter(path_to_disk) 
-
-    if args.evaluate:
-        from genINV_Locem_Eval import ImageNetVID
-
-        val_loader = DataLoader(gen_val,batch_size=1,shuffle=False)
-        aps = new_validate(val_loader, detector)
-        print('Mean APS',np.mean(aps))
-
-        map_vid = pd.read_pickle("../data/map_vid.pkl")
-        map_cat = map_vid.to_dict()['category_name']
-        dval = pd.read_pickle("../data/metadata_imgnet_vid_val_n2.pkl")
-        class_dict = {map_cat[i] for i in map_cat}
-        
-        class_aps_dict = {}
-        for i,j in zip(class_dict,aps):
-            class_aps_dict[i]=j
-        
-
-        return
-
+    map_vid = pd.read_pickle("../../data/map_vid.pkl")
+    map_cat = map_vid.to_dict()['category_name']
+    #dval = pd.read_pickle("../data/metadata_imgnet_vid_val_n2.pkl")
+    class_dict = {map_cat[i] for i in map_cat}
     
+    class_aps_dict = {}
+    for i,j in zip(class_dict,aps):
+        class_aps_dict[i]=j
+    print(class_aps_dict)
 
-    
-    metrics_train_all_epochs = {
-        'batch_time': [],
-        'data_time': [],
-        'losses': [],
-        'top1': [],
-        'top5': []
-    }
+    #writer = SummaryWriter(path_to_disk)
 
-    metrics_val_all_epochs = {
-        'batch_time': [],
-        'losses': [],
-        'top1': [],
-        'top5': []
-    }
-
-    
-
-    for epoch in range(args.start_epoch, args.epochs):
-        if args.distributed:
-            train_sampler.set_epoch(epoch)
-        adjust_learning_rate(optimizer, epoch, args)
-
-        # train for one epoch
-        avg_metrics_epoch = train(train_loader, model, criterion, optimizer, epoch, args, writer)
-
-        for key in metrics_train_all_epochs.keys():
-            metrics_train_all_epochs[key].append(avg_metrics_epoch[key])
-
-
-
-        # evaluate on validation set
-        acc1,avg_metrics_epoch_val = validate(val_loader, model, criterion, args, writer, epoch)
-
-        for key in metrics_val_all_epochs.keys():
-            metrics_val_all_epochs[key].append(avg_metrics_epoch_val[key])
-
-        # remember best acc@1 and save checkpoint
-        is_best = acc1 > best_acc1
-        best_acc1 = max(acc1, best_acc1)
-
-        if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': args.arch,
-                'state_dict': model.state_dict(),
-                'best_acc1': best_acc1,
-                'optimizer' : optimizer.state_dict(),
-            }, is_best)
-
-    pickle.dump( metrics_train_all_epochs, open( path_to_disk+"metrics_train_all_epochs.pkl", "wb" ) )
-    pickle.dump( metrics_val_all_epochs, open( path_to_disk+"metrics_val_all_epochs.pkl", "wb" ) )
-
-    print('---AVG_TRAIN_METRICS---')
-    for metric in metrics_train_all_epochs:
-        print(metric,mean(metrics_train_all_epochs[metric]))
-    
-    arg_top1 = np.argmax(np.array(metrics_train_all_epochs['top1']))
-    print('Max top1: ',max(metrics_train_all_epochs['top1']),arg_top1)
-    print('Top5(argmax-top1)',metrics_train_all_epochs['top5'][arg_top1])
-    print('Max top5: ',max(metrics_train_all_epochs['top5']),np.argmax(np.array(metrics_train_all_epochs['top5'])))
-
-    print('---AVG_VAL_METRICS---')
-    for metric in metrics_val_all_epochs:
-        print(metric,mean(metrics_val_all_epochs[metric]))
-
-    arg_top1 = np.argmax(np.array(metrics_val_all_epochs['top1']))
-    print('Max top1: ',max(metrics_val_all_epochs['top1']),arg_top1)
-    print('Top5(argmax-top1)',metrics_val_all_epochs['top5'][arg_top1])
-    print('Max top5: ',max(metrics_val_all_epochs['top5']),np.argmax(np.array(metrics_val_all_epochs['top5'])))
+    return
 
 
 def compute_average_precision(recall, precision):
@@ -558,6 +357,7 @@ def evaluate(preds,targets,class_names,threshold=0.5):
     """    
     
     aps = [] # list of average precisions (APs) for each class.
+    #aps_dict = defaultdict()
 
     for class_name in class_names:
         class_preds = preds[class_name] # all predicted objects for this class.
@@ -566,6 +366,7 @@ def evaluate(preds,targets,class_names,threshold=0.5):
             ap = 0.0 # if no box detected, assigne 0 for AP of this class.
             print('---class {} AP {}---'.format(class_name, ap))
             aps.append(ap)
+            #aps_dict[class_name]=ap
             continue #CHECK! It should be continue as even if ap is 0 for one class, other classes would have an ap
 
         image_fnames = [pred[0]  for pred in class_preds]
@@ -630,26 +431,30 @@ def evaluate(preds,targets,class_names,threshold=0.5):
         ap = compute_average_precision(recall, precision)
         print('---class {} AP {}---'.format(class_name, ap))
         aps.append(ap)
+        #aps_dict[class_name]=ap
 
     # Compute mAP by averaging APs for all classes.
     print('---mAP {}---'.format(np.mean(aps)))
     return aps
+    #return aps_dict
         
- def new_validate(val_loader, detector):
+def new_validate(val_loader, detector, mode):
 
 
     #Switch to evaluate mode
     #model.eval()
     #locEm = locEmDetector(model_path, gpu_id=gpu_id, conf_thresh=-1.0, prob_thresh=-1.0, nms_thresh=0.45)
-    locEm = detector
 
-    
+    if mode=='train':
+        data = pd.read_pickle("../../data/metadata_imgnet_vid_train.pkl")
+    else:
+        data = pd.read_pickle("../../data/metadata_imgnet_vid_val_n2.pkl")
+
     targets_ev = defaultdict(list)
     preds_ev = defaultdict(list)
 
-    map_vid = pd.read_pickle("../data/map_vid.pkl")
+    map_vid = pd.read_pickle("../../data/map_vid.pkl")
     map_cat = map_vid.to_dict()['category_name']
-    dval = pd.read_pickle("../data/metadata_imgnet_vid_val_n2.pkl")
     class_dict = {map_cat[i] for i in map_cat}
 
     with torch.no_grad():
@@ -661,125 +466,80 @@ def evaluate(preds,targets,class_names,threshold=0.5):
             #Create target
 
             idx = target.item()
-            sample = dval.loc[idx]
+            
+            sample = data.loc[idx]
             class_name = map_cat[sample.cat_code-1]
             x1,y1,x2,y2 = sample.xmin,sample.ymin,sample.xmax,sample.ymax
             x1,y1,x2,y2 = rescaleBoundingBox(sample.height,sample.width,224,x2,x1,y2,y1)
             targets_ev[(sample.file,class_name)].append([x1,y1,x2,y2])
 
             #preds_ev[class_name].append([sample.file, 0.99, x1, y1, x2, y2])
-            boxes, class_names, probs, embeddings_detected = loceEm.detect(image)
-            for box, class_name, prob in zip(boxes, class_names, probs):
+            boxes, class_names, probs, embeddings_detected = detector.detect(image)
+            for box, classname, prob in zip(boxes, class_names, probs):
                 x1y1, x2y2 = box
                 x1, y1 = int(x1y1[0]), int(x1y1[1])
                 x2, y2 = int(x2y2[0]), int(x2y2[1])
-                preds_ev[class_name].append([sample.file, prob, x1, y1, x2, y2])
-    
+                preds_ev[classname].append([sample.file, prob, x1, y1, x2, y2])
+
     print('Evaluate the detection result...')
 
-    aps = evaluate(preds, targets, class_names=voc_class_names)
+    aps = evaluate(preds_ev, targets_ev, class_names=list(class_dict))
 
     return aps
 
+def new_new_validate(val_loader, detector, mode):
 
-        
+    if mode=='train':
+        data = pd.read_pickle("../../data/metadata_imgnet_vid_train.pkl")
+    else:
+        data = pd.read_pickle("../../data/metadata_imgnet_vid_val_n2.pkl")
 
+    targets_ev = defaultdict(list)
+    preds_ev = defaultdict(list)
 
-def validate(val_loader, model, criterion, args, writer, epoch, mini_display=False):
-    batch_time = AverageMeter('Time', ':6.3f')
-    losses = AverageMeter('Loss', ':.4e')
-    loss_class_m = AverageMeter('Class_Loss',':.4e')
-    loss_triplet_m = AverageMeter('Triplet_Loss',':.4e')
-    top1 = AverageMeter('Acc@1', ':6.2f')
-    top5 = AverageMeter('Acc@5', ':6.2f')
-    progress = ProgressMeter(
-        len(val_loader),
-        [batch_time, losses,loss_class_m,loss_triplet_m, top1, top5],
-        prefix='Test: ')
+    map_vid = pd.read_pickle("../../data/map_vid.pkl")
+    map_cat = map_vid.to_dict()['category_name']
+    class_dict = {map_cat[i] for i in map_cat}
 
-    # switch to evaluate mode
-    model.eval()
-
-    #Validate only to display 12 images
+    new_aps = defaultdict()
 
     with torch.no_grad():
-        end = time.time()
-        for i, (images, target) in enumerate(val_loader):
+        for i, (image,target) in enumerate(val_loader):
+            '''
+                images = tensor(1,3,224,224)
+                target = tensor(idx) #idx of dval
+            '''
+            targets_ev = defaultdict(list)
+            preds_ev = defaultdict(list)
+
+            idx = target.item()
             
-            if args.gpu is not None:
-                images = images.cuda(args.gpu, non_blocking=True)
-            target = target.cuda(args.gpu, non_blocking=True)
+            sample = data.loc[idx]
+            class_name = map_cat[sample.cat_code-1]
+            x1,y1,x2,y2 = sample.xmin,sample.ymin,sample.xmax,sample.ymax
+            x1,y1,x2,y2 = rescaleBoundingBox(sample.height,sample.width,224,x2,x1,y2,y1)
+            targets_ev[(sample.file,class_name)].append([x1,y1,x2,y2])
 
-            # compute output
-            output = model(images)
-            #output = output.view(-1, S, S, 5 * B + C + beta)
-            #softmax = nn.Softmax(dim=1)
-            #sigmoid = nn.Sigmoid()
-            #output[:,:,:,:X*B] = sigmoid(output[:,:,:,:X*B])
-            #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C])
-            #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C]).requires_grad
-            #output[:,:,:,X*B+C:] = sigmoid(output[:,:,:,X*B+C:])
-            loss, loss_class, loss_triplet = criterion(output, target)
+            boxes, class_names, probs, embeddings_detected = detector.detect(image)
+            for box, classname, prob in zip(boxes, class_names, probs):
+                x1y1, x2y2 = box
+                x1, y1 = int(x1y1[0]), int(x1y1[1])
+                x2, y2 = int(x2y2[0]), int(x2y2[1])
+                preds_ev[classname].append([sample.file, prob, x1, y1, x2, y2])
 
-            # measure accuracy and record loss
-            #CHECK! The accuracy needs to be fed from the decoderTarget output
-            #acc1, acc5 = accuracy(output, target, topk=(1, 5))
-            acc1, acc5 = class_decoder(output,target,accuracy)
+            aps_dict = evaluate(preds_ev, targets_ev, class_names=list(class_dict))
 
-            losses.update(loss.item(), 1)
-            loss_class_m.update(loss_class.item(),1)
-            loss_triplet_m.update(loss_triplet.item(),1)
+            for class_name in aps_dict:
+                new_aps[class_name].append(aps_dict[class_name])
+    
+    #new_aps = dict {'c0':[v1,v1....vn]}
+    output_aps = {}
+    for class_name in new_aps:
+        output_aps[class_name] = sum(new_aps[class_name])
 
-            top1.update(acc1[0], 1)
-            top5.update(acc5[0], 1)
-
-            # measure elapsed time
-            batch_time.update(time.time() - end)
-            end = time.time()
-
-            if i % args.print_freq == 0:
-                progress.display(i)
-            #Stops the validation after just one batch required for mini display    
-            if mini_display:
-
-                _, pred = output.topk(5, 1, True, True)
-                figure = log_images(images,pred,target)
-                writer.add_figure('Mini-Display', figure)
-                
-
-                if i == 0:
-                    break
+    return output_aps
 
 
-        if isinstance(top1.avg,int):
-            t1 = top1.avg
-            t5 = top5.avg
-        else:
-            t1 = top1.avg.item()
-            t5 = top5.avg.item()
-
-        if epoch is not None:
-            writer.add_scalar('Validate/Loss', losses.avg, epoch)
-            writer.add_scalar('Validate/Class_Loss', loss_class_m.avg, epoch)
-            writer.add_scalar('Validate/Triplet_Loss', loss_triplet_m.avg, epoch)
-            writer.add_scalar('Validate/Accuracy/Top1', t1, epoch)
-            writer.add_scalar('Validate/Accuracy/Top5', t5, epoch)
-            writer.flush()
-        #else:
-            #Add writer for validation only run
-
-        avg_metrics_epoch = {
-            'batch_time': batch_time.avg,
-            'losses': losses.avg,
-            'top1': t1,
-            'top5': t5
-        }
-
-        # TODO: this should also be done with the ProgressMeter
-        print(' * Acc@1 {top1.avg:.3f} Acc@5 {top5.avg:.3f}'
-              .format(top1=top1, top5=top5))
-
-    return top1.avg,avg_metrics_epoch
 
 def log_images(images,pred,target):
 
@@ -816,90 +576,6 @@ def log_images(images,pred,target):
     
     return figure
 
-
-
-
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    
-    torch.save(state,path_to_disk+filename)
-    if is_best:
-        shutil.copyfile(path_to_disk+filename,path_to_disk+'model_best.pth.tar')
-
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-    def __init__(self, name, fmt=':f'):
-        self.name = name
-        self.fmt = fmt
-        self.reset()
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
-    def __str__(self):
-        fmtstr = '{name} {val' + self.fmt + '} ({avg' + self.fmt + '})'
-        return fmtstr.format(**self.__dict__)
-
-
-class ProgressMeter(object):
-    def __init__(self, num_batches, meters, prefix=""):
-        self.batch_fmtstr = self._get_batch_fmtstr(num_batches)
-        self.meters = meters
-        self.prefix = prefix
-
-    def display(self, batch):
-        entries = [self.prefix + self.batch_fmtstr.format(batch)]
-        entries += [str(meter) for meter in self.meters]
-        print('\t'.join(entries))
-
-    def _get_batch_fmtstr(self, num_batches):
-        num_digits = len(str(num_batches // 1))
-        fmt = '{:' + str(num_digits) + 'd}'
-        return '[' + fmt + '/' + fmt.format(num_batches) + ']'
-
-
-def adjust_learning_rate(optimizer, epoch, args):
-    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    #lr = args.lr * (0.1 ** (epoch // 30))
-    lr = args.lr
-    #lr = max(new_lr,0.001)
-
-    #YOLO Training Schedule
-    if epoch <=10:
-        lr = 0.01
-    elif epoch > 10 and epoch < 106:
-        lr = 0.001
-    else:
-        lr = 0.0001
-        
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res
 
 
 if __name__ == '__main__':
