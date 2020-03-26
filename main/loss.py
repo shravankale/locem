@@ -96,7 +96,7 @@ class locemLoss(nn.Module):
 
         '''
         S, B, C = self.S, self.B, self.C
-        N = 5 * B + C    # 5=len([x, y, w, h, conf]
+        N = (5 * B) + C    # 5=len([x, y, w, h, conf]
 
         batch_size = pred_tensor.size(0)
 
@@ -132,19 +132,19 @@ class locemLoss(nn.Module):
 
         mode=1 #mode 0: box/class loss for non-triplet objects; 1: box/class loss for ONLY triplet-objects
 
-        if mode==0:
-            pred_tensor = pred_tensor[:,:,:,:N]
-            target_tensor = target_tensor[:,:,:,:N]
-            coord_mask = target_tensor[:,:,:,4] > 0
-            noobj_mask = target_tensor[:,:,:,4] == 0
-        else:
+        #if mode==0:
+        pred_tensor = pred_tensor[:,:,:,:N]
+        target_tensor = target_tensor[:,:,:,:N]
+        coord_mask = target_tensor[:,:,:,4] > 0
+        noobj_mask = target_tensor[:,:,:,4] == 0
+        '''else:
             #Do we need to filter out the triplet boxes
             ##coord_mask = target_tensor[:,:,:,4] > 0 & (target_tensor[0,:,:,40] == 1 | target_tensor[0,:,:,40] == 2 | target_tensor[0,:,:,40] == 3)
             ##noobj_mask = target_tensor[:,:,:,4] == 0 & (target_tensor[0,:,:,40] == 1 | target_tensor[0,:,:,40] == 2 | target_tensor[0,:,:,40] == 3)
             coord_mask = target_tensor[:, :, :, 4] > 0  # mask for the cells which contain objects. [n_batch, S, S]
             noobj_mask = target_tensor[:, :, :, 4] == 0 # mask for the cells which do not contain objects. [n_batch, S, S]
             pred_tensor = pred_tensor[:,:,:,:N]
-            target_tensor = target_tensor[:,:,:,:N]
+            target_tensor = target_tensor[:,:,:,:N]'''
 
         '''print("PRED TENSOR",pred_tensor.size())
         print('TARGET TENSOR',target_tensor.size())'''

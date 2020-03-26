@@ -130,7 +130,8 @@ class yoloLoss(nn.Module):
         '''print("PRED TENSOR",pred_tensor.size())
         print('TARGET TENSOR',target_tensor.size())'''
 
-       ''' mode=1 #mode 0: box/class loss for non-triplet objects; 1: box/class loss for ONLY triplet-objects
+        ''' 
+        mode=1 #mode 0: box/class loss for non-triplet objects; 1: box/class loss for ONLY triplet-objects
 
         if mode==0:
             pred_tensor = pred_tensor[:,:,:,:N]
@@ -151,6 +152,9 @@ class yoloLoss(nn.Module):
     
         pred_tensor = pred_tensor[:,:,:,:N]
         target_tensor = target_tensor[:,:,:,:N]
+
+        coord_mask = target_tensor[:,:,:,4] > 0
+        noobj_mask = target_tensor[:,:,:,4] == 0
         
         #The Yolo Part
 

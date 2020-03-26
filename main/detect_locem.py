@@ -1,22 +1,27 @@
 import torch
 import torch.nn as nn
 import torchvision.models as models
+from torchvision import transforms
+from torch.autograd import Variable
 
 from torch.utils.tensorboard import SummaryWriter
 
 import pandas as pd
+import cv2
+import numpy as np
 
-from .nn_view import View
+from main.nn_view import View
 
 class locEmDetector():
 
     def __init__(self,
         model_path, class_name_list=None, mean_rgb=[122.67891434, 116.66876762, 104.00698793],
         conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,
-        gpu_id=0):
+        gpu_id=2):
 
-        map_vid = pd.read_pickle("../data/map_vid.pkl")
+        map_vid = pd.read_pickle("../../data/map_vid.pkl")
         self.class_name_list = list(map_vid['category_name'])
+        #print('self.class_name_list',self.class_name_list)
 
         self.S, self.B, self.C, self.beta = 7,2,30,64
 
@@ -26,8 +31,14 @@ class locEmDetector():
         self.gpu_id = gpu_id
         self.model_path = model_path
 
+        self.to_tensor = transforms.ToTensor()
+        mean_rgb = [122.67891434, 116.66876762, 104.00698793]
+        self.mean = np.array(mean_rgb, dtype=np.float32)
+
         #Fetch locEm model
         self.loceEm = self.getModel(self.model_path)
+        #Set model to validate
+        self.loceEm.eval()
 
     def image2tensorboard(self,val_loader):
         '''
@@ -81,12 +92,13 @@ class locEmDetector():
         model = torch.nn.DataParallel(model).cuda()
         optimizer = torch.optim.SGD(model.parameters(), 0.01,
                                 momentum=0.9,
-                                weight_decay=0.00005)
+                                weight_decay=1e-4)
         loc = 'cuda:{}'.format(self.gpu_id)
         checkpoint = torch.load(model_path, map_location=loc)
 
         best_acc1 = checkpoint['best_acc1']
-        print("Best Training Accuracy: {}".format(best_acc1))
+        epch = checkpoint['epoch']
+        print("Best Training Accuracy: {} @Epoch: {}".format(best_acc1,epch))
 
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
@@ -103,12 +115,28 @@ class locEmDetector():
             class_names_detected: (list of str) list of class name for each detected boxe.
             probs_detected: (list of float) list of probability(=confidence x class_score) for each detected box.
         '''
-        h,w = image_size, image_size
-    
         S,B,C,beta = self.S, self.B, self.C, self.beta
 
-        #Set model to train
-        self.loceEm.eval()
+        #Converts Tensor(N=1,C,H,W) to NP(H,W,C)
+        #img = img.numpy()[0]
+
+        #print("TYPE IMG",type(img))
+        #print("IMG.SHAPE",img.shape)
+
+
+        #Preprocessing image before detect
+        #rint('img.shape',img.shape)
+        h,w,_ = img.shape
+        img = cv2.resize(img, dsize=(image_size, image_size), interpolation=cv2.INTER_LINEAR)
+        #img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) # assuming the model is trained with RGB images.
+        img = (img - self.mean) / 255.0
+        img = self.to_tensor(img)
+        img = img[None, :, :, :]  # [3, image_size, image_size] -> [1, 3, image_size, image_size]
+        img = Variable(img)
+        img = img.cuda()
+        
+
+        
 
         with torch.no_grad():
             pred_tensor = self.loceEm(img)
@@ -117,13 +145,16 @@ class locEmDetector():
 
         boxes_normalized_all, class_labels_all, confidences_all, class_scores_all, embeddings_all = self.decode(pred_tensor)
 
+        #print('detect(), class_labels_all',class_labels_all)
+        #print('detect(), boxes_normalized_all',boxes_normalized_all)
+
         if boxes_normalized_all.size(0) == 0:
             return [], [], [], [] # if no box found, return empty lists.
         
         # Apply non maximum supression for boxes of each class.
         boxes_normalized, class_labels, probs, embeds = [], [], [], []
 
-        for class_label in range(len(self.class_name_list)): #replace range(C) with range(len(list_of_classes))
+        for class_label in range(len(self.class_name_list)): 
             mask = (class_labels_all == class_label)
 
             if torch.sum(mask) == 0:
@@ -230,6 +261,7 @@ class locEmDetector():
             embeddings: The embedding for the objects refined by class and box coordinates, sized [n_boxes,1]
 
         '''
+        #print('decode()',pred_tensor.size())
 
         S, B, C = self.S, self.B, self.C
         boxes, labels, confidences, class_scores, embeddings = [], [], [], [], []
@@ -239,7 +271,7 @@ class locEmDetector():
         conf = pred_tensor[:, :, 4].unsqueeze(2) # [S, S, 1]
         for b in range(1, B):
             conf = torch.cat((conf, pred_tensor[:, :, 5*b + 4].unsqueeze(2)), 2)
-        conf = conf[:,:,1:] #Removing the duplicate first conf
+        #conf = conf[:,:,1:] #Removing the duplicate first conf
         conf_mask = conf > self.conf_thresh # [S, S, B]
 
         for i in range(S):

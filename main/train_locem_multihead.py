@@ -17,7 +17,7 @@ import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
-#import torchvision.models as models
+import torchvision.models as models
 from r50_yolo_triplet_multihead import resnet50
 
 #For LocEm
@@ -132,7 +132,7 @@ def class_decoder(pred_tensor,target_tensor,accuracy):
 
     #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
     #gamma should be at 40?
-    class_mask_target = (target_tensor[:,:,:,B*X+C]==1) | (target_tensor[:,:,:,B*X+C]==2) | (target_tensor[:,:,:,B*X+C]==3)
+    class_mask_target = (target_tensor[:,:,:,4]==1) & (target_tensor[:,:,:,9]==1)
 
     #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
     pred_tensor_gamma = pred_tensor[class_mask_target]
@@ -440,7 +440,7 @@ def main_worker(gpu, ngpus_per_node, args):
         adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
-        avg_metrics_epoch = train(train_loader, model, criterion, optimizer, epoch, args, writer)
+        avg_metrics_epoch = train(train_loader, model, criterion_yolo, criterion_triplet, optimizer, epoch, args, writer)
 
         for key in metrics_train_all_epochs.keys():
             metrics_train_all_epochs[key].append(avg_metrics_epoch[key])
@@ -448,7 +448,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
 
         # evaluate on validation set
-        acc1,avg_metrics_epoch_val = validate(val_loader, model, criterion, args, writer, epoch)
+        acc1,avg_metrics_epoch_val = validate(val_loader, model, criterion_yolo, criterion_triplet, args, writer, epoch)
 
         for key in metrics_val_all_epochs.keys():
             metrics_val_all_epochs[key].append(avg_metrics_epoch_val[key])
@@ -494,7 +494,7 @@ def main_worker(gpu, ngpus_per_node, args):
     
 
 
-def train(train_loader, model, criterion, optimizer, epoch, args, writer):
+def train(train_loader, model, criterion_yolo, criterion_triplet, optimizer, epoch, args, writer):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -540,14 +540,14 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         acc1, acc5 = class_decoder(output_yolo,target,accuracy)
 
         #record loss
-        losses.update(loss.item(), images.size(0))
-        loss_yolo_m.update(loss_yolo.item(),images.size(0))
-        loss_triplet_m.update(loss_triplet.item(),images.size(0))
-        loss_yolo_class_m.update(loss_yolo_class.item(),images.size(0))
-        loss_yolo_xywh_m.update(loss_yolo_xywh.item(),images.size(0))
+        losses.update(loss.item(), 1)
+        loss_yolo_m.update(loss_yolo.item(),1)
+        loss_triplet_m.update(loss_triplet.item(),1)
+        loss_yolo_class_m.update(loss_class.item(),1)
+        loss_yolo_xywh_m.update(loss_xywh.item(),1)
 
-        top1.update(acc1[0], images.size(0))
-        top5.update(acc5[0], images.size(0))
+        top1.update(acc1[0], 1)
+        top5.update(acc5[0], 1)
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -594,7 +594,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
     
 
 
-def validate(val_loader, model, criterion, args, writer, epoch, mini_display=False):
+def validate(val_loader, model, criterion_yolo, criterion_triplet, args, writer, epoch, mini_display=False):
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     loss_yolo_m = AverageMeter('Yolo_Loss',':.4e')
@@ -605,7 +605,7 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
     top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
         len(val_loader),
-        [batch_time, losses,loss_yolo_m,loss_triplet_m,loss_yolo_class_m,loss_yolo_xywh_m, top1, top5],,
+        [batch_time, losses,loss_yolo_m,loss_triplet_m,loss_yolo_class_m,loss_yolo_xywh_m, top1, top5],
         prefix='Test: ')
 
     # switch to evaluate mode
@@ -636,14 +636,19 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
             # measure accuracy and record loss
             #CHECK! The accuracy needs to be fed from the decoderTarget output
             #acc1, acc5 = accuracy(output, target, topk=(1, 5))
-            acc1, acc5 = class_decoder(output,target,accuracy)
+            acc1, acc5 = class_decoder(output_yolo,target,accuracy)
 
             '''losses.update(loss.item(), images.size(0))
             loss_class_m.update(loss_class.item(),images.size(0))
             loss_triplet_m.update(loss_triplet.item(),images.size(0))'''
+            losses.update(loss.item(), 1)
+            loss_yolo_m.update(loss_yolo.item(),1)
+            loss_triplet_m.update(loss_triplet.item(),1)
+            loss_yolo_class_m.update(loss_class.item(),1)
+            loss_yolo_xywh_m.update(loss_xywh.item(),1)
 
-            top1.update(acc1[0], images.size(0))
-            top5.update(acc5[0], images.size(0))
+            top1.update(acc1[0], 1)
+            top5.update(acc5[0], 1)
 
             # measure elapsed time
             batch_time.update(time.time() - end)

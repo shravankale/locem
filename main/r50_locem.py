@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.nn import functional as F
 #from .utils import load_state_dict_from_url
 from torch.utils.model_zoo import load_url as load_state_dict_from_url
 
@@ -153,15 +154,13 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         #Custom for locem_multihead
-        num_classes = 7*7*(2*5+30)
-        self.fc_yolo = nn.Linear(512 * block.expansion, num_classes)
+        num_classes = 7*7*(2*5+30+64)
+        self.l1 = nn.Linear(512 * block.expansion,4096)
+        self.relu2 = nn.ReLU()
+        self.fc_locem = nn.Linear(4096, num_classes)
         self.sigmoid = nn.Sigmoid()
-
-        #Triplet Part
-        self.conv1x1 = nn.Conv2d(2048, 1024, kernel_size=(1,1), stride=1, padding=0,
-                               bias=False)
-        self.trip_num_classes = 7*7*(2*5+64) #S*S*(B*5+beta)
-        self.fc_triplet = nn.Linear(1024,self.trip_num_classes)
+        
+        
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -216,19 +215,16 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        y = self.conv1x1(x)
-        y = self.relu(y)
-        y = self.avgpool(y)
-        y = torch.flatten(y,1)
-        y = self.fc_triplet(y)
-        y = self.sigmoid(y)
-
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = self.fc_yolo(x)
-        x = self.sigmoid(x)
+        x = self.l1(x)
+        x = self.relu2(x)
+        x = self.fc_locem(x)
+        x = x.view(-1,7,7,2*5+30+64)
+        x[:,:,:,:40]=self.sigmoid(x[:,:,:,:40])
+        #x[:,:,:,40:]=F.normalize(x[:,:,:,40:],p=2)
 
-        return x,y
+        return x
 
     def forward(self, x):
         return self._forward_impl(x)

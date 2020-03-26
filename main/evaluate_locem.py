@@ -38,8 +38,9 @@ sys.path.append('..')
 
 #For Eval
 from collections import defaultdict
-from genINV_Locem_Eval import ImageNetVID
+from genINV_Locem_Eval_v2 import ImageNetVID
 from detect_locem import locEmDetector
+from EmbedDatabase_v3 import EmbedDatabase
 
 from statistics import mean 
 import pickle
@@ -114,7 +115,7 @@ C=30
 beta=64
 gamma=1
 
-def rescaleBoundingBox(height,width,rescaled_dim,xmax,xmin,ymax,ymin):
+def rescaleBoundingBox(height,width,rescaled_dim,xmin,ymin,xmax,ymax):
     
     #Required CNN input dimensions are generally squares hence just one dimension, rescaled_dim
     scale_x = rescaled_dim/width
@@ -125,7 +126,27 @@ def rescaleBoundingBox(height,width,rescaled_dim,xmax,xmin,ymax,ymin):
     ymax = int(ymax * scale_y)
     ymin = int(ymin * scale_y)
     
-    return [xmax,xmin,ymax,ymin]
+    return [xmin,ymin,xmax,ymax]
+
+def collate_fn(data):
+
+    '''print("TYPE DATA COLLATE",type(data))
+    print("LEN DATA COLLATE",len(data))
+    print("type data[0]",type(data[0][0]))
+    print("type data[1]",type(data[0][1]))
+    print("type data[2]",type(data[0][2]))'''
+
+    #sys.exit(0)
+    '''images = torch.tensor(np.transpose(data[0][0],(2,0,1)))
+    bboxes = torch.tensor(data[0][1])'''
+
+    n = len(data[0])
+    out = []
+
+    for i in range(n):
+        out.append(data[0][i])
+
+    return out
 
 def main():
     args = parser.parse_args()
@@ -211,7 +232,8 @@ def main_worker(gpu, ngpus_per_node, args):
     )
     print(model)
 
-    
+    #Importing Embedder Database
+    ed = EmbedDatabase()
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
@@ -280,33 +302,35 @@ def main_worker(gpu, ngpus_per_node, args):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
-    train_dataset = "../../data/metadata_imgnet_vid_train_n2.pkl"
+    train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
     #best val dataset has _new
-    val_dataset = "../../data/metadata_imgnet_vid_val_n2.pkl"
-    root_datasets = "../../../../datasets/"
+    val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
+    root_datasets = '/disk/shravank/datasets/'
 
 
-    transform = trfms.Compose([
+    '''transform = trfms.Compose([
         #add random crop
         #trfms.RandomHorizontalFlip(),
         #trfms.ColorJitter(0.2, 0.2, 0.2),
         trfms.ToTensor(),
         normalize
-    ])
+    ])'''
     
     #Generators
-    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',transform=transform)
-    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',transform=transform)
+    gen_train = ImageNetVID(root_datasets,train_dataset,split='train')
+    gen_val = ImageNetVID(root_datasets,val_dataset,split='val')
 
-    train_loader = DataLoader(gen_train,batch_size=1,num_workers=args.workers,shuffle=False)
-    #val_loader = DataLoader(gen_val,batch_size=1,shuffle=False)
+    train_loader = DataLoader(gen_train,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
+    val_loader = DataLoader(gen_val,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
 
-    detector = locEmDetector(args.experiment_path)
-    aps = new_validate(train_loader, detector, mode='train')
+    print('Len of loader',len(train_loader))
+
+    detector = locEmDetector(args.experiment_path,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.30)
+    aps = new_validate(val_loader, detector, ed)
 
     print('Mean APS',np.mean(aps))
 
-    map_vid = pd.read_pickle("../../data/map_vid.pkl")
+    map_vid = pd.read_pickle("../data/map_vid.pkl")
     map_cat = map_vid.to_dict()['category_name']
     #dval = pd.read_pickle("../data/metadata_imgnet_vid_val_n2.pkl")
     class_dict = {map_cat[i] for i in map_cat}
@@ -438,50 +462,100 @@ def evaluate(preds,targets,class_names,threshold=0.5):
     return aps
     #return aps_dict
         
-def new_validate(val_loader, detector, mode):
+def new_validate(val_loader, detector, ed):
+
+    '''
+        preds: (dict) {class_name_1: [[filename, prob, x1, y1, x2, y2], ...], class_name_2: [[], ...], ...}.
+        targets: (dict) {(filename, class_name): [[x1, y1, x2, y2], ...], ...}.
+    '''
 
 
     #Switch to evaluate mode
     #model.eval()
     #locEm = locEmDetector(model_path, gpu_id=gpu_id, conf_thresh=-1.0, prob_thresh=-1.0, nms_thresh=0.45)
 
-    if mode=='train':
-        data = pd.read_pickle("../../data/metadata_imgnet_vid_train.pkl")
-    else:
-        data = pd.read_pickle("../../data/metadata_imgnet_vid_val_n2.pkl")
+    '''preds: (dict) {class_name_1: [[filename, prob, x1, y1, x2, y2], ...], class_name_2: [[], ...], ...}.
+        targets: (dict) {(filename, class_name): [[x1, y1, x2, y2], ...], ...}.'''
 
     targets_ev = defaultdict(list)
     preds_ev = defaultdict(list)
 
-    map_vid = pd.read_pickle("../../data/map_vid.pkl")
+    map_vid = pd.read_pickle("../data/map_vid.pkl")
     map_cat = map_vid.to_dict()['category_name']
     class_dict = {map_cat[i] for i in map_cat}
 
+    accurate_class_predictions = 0
+    total_predictions = 0
+    same_len_buffer = 0
+    print('Len of val_loader',len(val_loader))
+
     with torch.no_grad():
-        for i, (image,target) in enumerate(val_loader):
+        for i, (image,bbox,classname,filename, uids) in enumerate(val_loader):
             '''
                 images = tensor(1,3,224,224)
                 target = tensor(idx) #idx of dval
             '''
-            #Create target
-
-            idx = target.item()
             
-            sample = data.loc[idx]
-            class_name = map_cat[sample.cat_code-1]
-            x1,y1,x2,y2 = sample.xmin,sample.ymin,sample.xmax,sample.ymax
-            x1,y1,x2,y2 = rescaleBoundingBox(sample.height,sample.width,224,x2,x1,y2,y1)
-            targets_ev[(sample.file,class_name)].append([x1,y1,x2,y2])
+            '''print('image',image.shape)
+            print('bbox',bbox)
+            print('classname',classname)
+            print('filename',filename)'''
+            '''
+            print("TYPES")
 
+            print('image',type(image))
+            print('bbox',type(bbox))
+            print('classname',type(classname))
+            print('filename',type(filename))'''
+            
+            for b in range(len(bbox)):
+
+                x1,y1,x2,y2 = bbox[b]
+                targets_ev[(filename,classname[b])].append([x1,y1,x2,y2])
+
+            '''print('classname_t',classname)
+            print('bbox_t',bbox)
+            print('filename',filename)
+            '''
             #preds_ev[class_name].append([sample.file, 0.99, x1, y1, x2, y2])
             boxes, class_names, probs, embeddings_detected = detector.detect(image)
-            for box, classname, prob in zip(boxes, class_names, probs):
+            '''print('TESTING OUTPUT vs TARGET')
+            print(class_names,boxes)
+            print('------------Target below-------')
+            print(classname,[x1,y1,x2,y2])
+            sys.exit(0)'''
+            '''print('boxes',len(boxes))
+            print('uids',uids)
+            print('cnames',len(class_names))
+            print('embedd-det',len(embeddings_detected))
+            sys.exit(0)'''
+
+            '''if len(embeddings_detected) == len(uids):
+                same_len_buffer+=1'''
+
+            if len(boxes) == len(bbox):
+                same_len_buffer+=1
+                
+
+            total_predictions+=1
+            if len(class_names) > 0 and set(classname) == set(class_names):
+                accurate_class_predictions+=1
+            
+            ''' print('class_names',class_names)
+            print('boxes',boxes)
+            sys.exit(0)'''
+
+            for box, classname_p, prob in zip(boxes, class_names, probs):
                 x1y1, x2y2 = box
                 x1, y1 = int(x1y1[0]), int(x1y1[1])
                 x2, y2 = int(x2y2[0]), int(x2y2[1])
-                preds_ev[classname].append([sample.file, prob, x1, y1, x2, y2])
+                preds_ev[classname_p].append([filename, prob, x1, y1, x2, y2])
 
+    print('ACCURACY CLASS',(accurate_class_predictions*100.0)/total_predictions)
     print('Evaluate the detection result...')
+    print('len acc', (same_len_buffer*100.0)/total_predictions)
+    print('total TARGETS len',len(targets_ev))
+    
 
     aps = evaluate(preds_ev, targets_ev, class_names=list(class_dict))
 
@@ -490,14 +564,14 @@ def new_validate(val_loader, detector, mode):
 def new_new_validate(val_loader, detector, mode):
 
     if mode=='train':
-        data = pd.read_pickle("../../data/metadata_imgnet_vid_train.pkl")
+        data = pd.read_pickle("../data/metadata_imgnet_vid_train.pkl")
     else:
-        data = pd.read_pickle("../../data/metadata_imgnet_vid_val_n2.pkl")
+        data = pd.read_pickle("../data/metadata_imgnet_vid_val_n2.pkl")
 
     targets_ev = defaultdict(list)
     preds_ev = defaultdict(list)
 
-    map_vid = pd.read_pickle("../../data/map_vid.pkl")
+    map_vid = pd.read_pickle("../data/map_vid.pkl")
     map_cat = map_vid.to_dict()['category_name']
     class_dict = {map_cat[i] for i in map_cat}
 

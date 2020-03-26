@@ -19,6 +19,9 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+from r50_locem import resnet18
+from r50_locem import resnet50
+from r50_locem import resnet101
 torch.autograd.set_detect_anomaly(True)
 
 
@@ -33,7 +36,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 sys.path.append('..')
 #from genINV_R50_v1 import ImageNetVID
-from genINV_Locem_v1 import ImageNetVID
+from genINV_Locem_v2 import ImageNetVID
 
 from statistics import mean 
 import pickle
@@ -62,7 +65,7 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
-parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
+parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
@@ -129,6 +132,8 @@ def class_decoder(pred_tensor,target_tensor,accuracy):
         Out:
     '''
 
+    
+
     #S,B,C,X,beta,gamma = self.S,self.B,self.C,self.X,self.beta,self.gamma
 
     #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
@@ -152,6 +157,17 @@ def class_decoder(pred_tensor,target_tensor,accuracy):
     output = pred_tensor_gamma #[n_objects,C]
 
     acc1, acc5 = accuracy(output, target, topk=(1, 5))
+
+    '''print('pred_tensor',pred_tensor.size())
+    print('target_tensor',target_tensor.size())
+    print('class_mask_target',class_mask_target)
+    print('class_mask_target',class_mask_target.size())
+    print('pred_tensor_gamma',pred_tensor_gamma.size())
+    print('target_tensor_gamma',target_tensor_gamma.size())
+    print('target',target.size())
+    print('target',target)
+    print('output',output.size())
+    sys.exit(0)'''
 
     return acc1, acc5
         
@@ -214,20 +230,22 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
-        model = models.__dict__[args.arch](pretrained=True)
+        #model = models.__dict__[args.arch](pretrained=True)
+        model = resnet50(pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
-        model = models.__dict__[args.arch]()
+        #model = models.__dict__[args.arch]()
+        model = resnet50()
 
 
     #model = models.resnet50()
     
    
 
-    final_layer_units = S*S*(B*X+C+beta)
+    #final_layer_units = S*S*(B*X+C+beta)
 
     #Sets classes to 30
-    num_classes = 30
+    #num_classes = 30
     
     '''if not model.fc.weight.size()[0] == num_class:
         # Replace last layer
@@ -239,7 +257,7 @@ def main_worker(gpu, ngpus_per_node, args):
     '''for param in model.parameters():
         param.requires_grad = False'''
     
-    num_ftrs = model.fc.in_features
+    #num_ftrs = model.fc.in_features
     #model.fc = nn.Linear(num_ftrs, final_layer_units)
 
     #SIGMOID WAS ADDED BECAUSE SOME OF THE PREDICTED VALUES WERE NEGATIVE
@@ -251,16 +269,16 @@ def main_worker(gpu, ngpus_per_node, args):
         nn.Linear(num_ftrs, final_layer_units),
         nn.Sigmoid()
     )'''
-    num_classes = S*S*(B*X+C+beta)
+    '''num_classes = S*S*(B*X+C+beta)
     model.fc = nn.Sequential(
         nn.Linear(num_ftrs,4096),
         #nn.LeakyReLU(0.1, inplace=True),
         nn.ReLU(),
         #nn.Dropout(0.5, inplace=False),
         nn.Linear(4096,num_classes),
-        nn.Sigmoid(),
+        #nn.Sigmoid(),
         View((-1,S,S,B*X+C+beta))
-    )
+    )'''
     print(model)
 
 
@@ -297,6 +315,7 @@ def main_worker(gpu, ngpus_per_node, args):
         torch.cuda.set_device(args.gpu)
         model = model.cuda(args.gpu)
     else:
+        print("Parallelism Enabled")
         # DataParallel will divide and allocate batch_size to all available GPUs
         if args.arch.startswith('alexnet') or args.arch.startswith('vgg'):
             model.features = torch.nn.DataParallel(model.features)
@@ -344,10 +363,11 @@ def main_worker(gpu, ngpus_per_node, args):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
-    train_dataset = "../../data/metadata_imgnet_vid_train_n2.pkl"
+    train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
     #best val dataset has _new
-    val_dataset = "../../data/metadata_imgnet_vid_val_n2.pkl"
-    root_datasets = "../../../../datasets/"
+    val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
+    #root_datasets = "../../../../datasets/"
+    root_datasets = '/disk/shravank/datasets/'
 
     '''train_dataset = datasets.ImageFolder(
         traindir,
@@ -372,8 +392,8 @@ def main_worker(gpu, ngpus_per_node, args):
     ])
     
     #Generators
-    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',transform=transform_train)
-    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',transform=transform_val)
+    gen_train = ImageNetVID(root_datasets,train_dataset,split='train')
+    gen_val = ImageNetVID(root_datasets,val_dataset,split='val')
 
 
     if args.distributed:
@@ -405,7 +425,7 @@ def main_worker(gpu, ngpus_per_node, args):
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)'''
 
-    val_loader = DataLoader(gen_val,batch_size=256,collate_fn=collate_fn)
+    val_loader = DataLoader(gen_val,batch_size=64,collate_fn=collate_fn)
     #val_loader = DataLoader(gen_val,batch_size=119/154,,num_workers=11)
 
     writer = SummaryWriter(path_to_disk) 
@@ -526,6 +546,11 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
 
     end = time.time()
     for i, (images, target) in enumerate(train_loader):
+        
+
+        #print(images.size())
+        #print(target.size())
+        
         # measure data loading time
         data_time.update(time.time() - end)
         if args.gpu is not None:
@@ -543,6 +568,10 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C]).requires_grad
         #output[:,:,:,X*B+C:] = sigmoid(output[:,:,:,X*B+C:])
         loss, loss_class, loss_triplet = criterion(output, target)
+        #print(loss.item())
+        #print(loss_class.item())
+        #print(loss_triplet.item())
+
 
         # measure accuracy #NEW! change accuracy to decodeTarget from the dataset class
         # You can reuse accuracy and pass it the class_pred,target_pred but those need to be in the right format for accuracy to work
@@ -789,11 +818,24 @@ def adjust_learning_rate(optimizer, epoch, args):
     #lr = max(new_lr,0.001)
 
     #YOLO Training Schedule
-    if epoch <=10:
+    
+    
+    '''if epoch <=10:
         lr = 0.01
     elif epoch > 10 and epoch < 106:
         lr = 0.001
     else:
+        lr = 0.0001'''
+
+    if epoch == 0:
+        lr = 0.001
+    elif epoch >= 1:
+        lr = 0.01
+    elif epoch >= 75:
+        lr = 0.001
+    elif epoch >= 105:
+        lr = 0.0001
+    else: 
         lr = 0.0001
         
     for param_group in optimizer.param_groups:
