@@ -21,6 +21,8 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 torch.autograd.set_detect_anomaly(True)
+from torchvision.utils import make_grid
+from r50_locem import resnet50
 
 
 #For LocEm
@@ -40,10 +42,10 @@ sys.path.append('..')
 from collections import defaultdict
 from genINV_Locem_Eval_v2 import ImageNetVID
 from detect_locem import locEmDetector
-from EmbedDatabase_v3 import EmbedDatabase
+from util.EmbedDatabase_v3 import EmbedDatabase
 
 from statistics import mean 
-import pickle
+import pickle,cv2
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -101,7 +103,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
-parser.add_argument('-ep','--experiment_path', type=str, help="Name of the experiment that contains the best model")
+parser.add_argument('-en','--experiment_path', type=str, help="Name of the experiment that contains the best model")
 #parser.add_argument('-pd','--path_to_disk',default='/disk/shravank/imageNet_ResNet50_savedModel/', type=str, help="Path to disk")
 
 
@@ -114,6 +116,7 @@ X=5
 C=30
 beta=64
 gamma=1
+image_size = 448
 
 def rescaleBoundingBox(height,width,rescaled_dim,xmin,ymin,xmax,ymax):
     
@@ -206,12 +209,14 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
-        model = models.__dict__[args.arch](pretrained=True)
+        #model = models.__dict__[args.arch](pretrained=True)
+        model = resnet50(pretrained=True,S=S,B=B,C=C,X=X,beta=beta)
     else:
         print("=> creating model '{}'".format(args.arch))
-        model = models.__dict__[args.arch]()
+        #model = models.__dict__[args.arch]()
+        model = resnet50(S=S,B=B,C=C,X=X,beta=beta)
 
-    num_ftrs = model.fc.in_features
+    #num_ftrs = model.fc.in_features
     #model.fc = nn.Linear(num_ftrs, final_layer_units)
 
     #SIGMOID WAS ADDED BECAUSE SOME OF THE PREDICTED VALUES WERE NEGATIVE
@@ -219,17 +224,6 @@ def main_worker(gpu, ngpus_per_node, args):
     #BUT SOME PREDICTED VALUES MIGHT NEED TO BE NEGATIVE
     #https://www.reddit.com/r/deeplearning/comments/9z50qi/confused_about_yolo_loss_function/
 
-    
-    num_classes = S*S*(B*X+C+beta)
-    model.fc = nn.Sequential(
-        nn.Linear(num_ftrs,4096),
-        #nn.LeakyReLU(0.1, inplace=True),
-        nn.ReLU(),
-        #nn.Dropout(0.5, inplace=False),
-        nn.Linear(4096,num_classes),
-        nn.Sigmoid(),
-        View((-1,S,S,B*X+C+beta))
-    )
     print(model)
 
     #Importing Embedder Database
@@ -317,18 +311,22 @@ def main_worker(gpu, ngpus_per_node, args):
     ])'''
     
     #Generators
-    gen_train = ImageNetVID(root_datasets,train_dataset,split='train')
-    gen_val = ImageNetVID(root_datasets,val_dataset,split='val')
+    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X,gamma=gamma)
+    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',image_size=image_size,S=S,B=B,C=C,X=X,gamma=gamma)
 
     train_loader = DataLoader(gen_train,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
     val_loader = DataLoader(gen_val,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
 
     print('Len of loader',len(train_loader))
 
-    detector = locEmDetector(args.experiment_path,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.30)
-    aps = new_validate(val_loader, detector, ed)
+    #detector = locEmDetector(args.experiment_path,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.30)
 
-    print('Mean APS',np.mean(aps))
+    writer = SummaryWriter(path_to_disk)
+
+    detector = locEmDetector(model,conf_thresh=0.2, prob_thresh=0.2, nms_thresh=0.60,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
+    aps = new_validate(train_loader, detector, ed,writer)
+
+    '''print('Mean APS',np.mean(aps))
 
     map_vid = pd.read_pickle("../data/map_vid.pkl")
     map_cat = map_vid.to_dict()['category_name']
@@ -338,9 +336,9 @@ def main_worker(gpu, ngpus_per_node, args):
     class_aps_dict = {}
     for i,j in zip(class_dict,aps):
         class_aps_dict[i]=j
-    print(class_aps_dict)
+    print(class_aps_dict)'''
 
-    #writer = SummaryWriter(path_to_disk)
+    writer.close()
 
     return
 
@@ -368,7 +366,7 @@ def compute_average_precision(recall, precision):
 
     return ap
        
-def evaluate(preds,targets,class_names,threshold=0.5):
+def evaluate(preds,targets,class_names,threshold=0.5): #original threshold 0.5
     
     """ Compute mAP metric.
     Args:
@@ -461,8 +459,37 @@ def evaluate(preds,targets,class_names,threshold=0.5):
     print('---mAP {}---'.format(np.mean(aps)))
     return aps
     #return aps_dict
+
+def visualize(image,target_boxes,predicted_boxes,writer,n):
+
+    red = (255,0,0)
+    green = (0,255,0)
+    thickness = 2
+
+    for box in target_boxes:
+        x1,y1,x2,y2 = box
+        pt1 = (x1,y1)
+        pt2 = (x2,y2)
+        image = cv2.rectangle(image,pt1,pt2,red,thickness)
+    
+    if len(predicted_boxes)>0:
+        for box in predicted_boxes:
+            x1y1, x2y2 = box
+            x1, y1 = int(x1y1[0]), int(x1y1[1])
+            x2, y2 = int(x2y2[0]), int(x2y2[1])
+            pt1 = (x1,y1)
+            pt2 = (x2,y2)
+            image = cv2.rectangle(image,pt1,pt2,green,thickness)
+
+    to_tensor = transforms.ToTensor()
+    image = to_tensor(image)
+    grid = make_grid(image)
+    writer.add_image('train_image', grid, n)
+
+
+    return None
         
-def new_validate(val_loader, detector, ed):
+def new_validate(val_loader, detector, ed,writer):
 
     '''
         preds: (dict) {class_name_1: [[filename, prob, x1, y1, x2, y2], ...], class_name_2: [[], ...], ...}.
@@ -487,6 +514,8 @@ def new_validate(val_loader, detector, ed):
     accurate_class_predictions = 0
     total_predictions = 0
     same_len_buffer = 0
+    no_pred = 0
+    n=0
     print('Len of val_loader',len(val_loader))
 
     with torch.no_grad():
@@ -495,11 +524,12 @@ def new_validate(val_loader, detector, ed):
                 images = tensor(1,3,224,224)
                 target = tensor(idx) #idx of dval
             '''
-            
+        
             '''print('image',image.shape)
             print('bbox',bbox)
             print('classname',classname)
             print('filename',filename)'''
+            
             '''
             print("TYPES")
 
@@ -530,21 +560,44 @@ def new_validate(val_loader, detector, ed):
             print('embedd-det',len(embeddings_detected))
             sys.exit(0)'''
 
+            '''print("Detected")
+            print('boxes',boxes)
+            print('class_names',class_names)
+            print('probs',probs)
+            print('embeddings_detected size',len(embeddings_detected))
+            sys.exit(0)'''
+
+            print('bbox',bbox)
+            print('len bbox',len(bbox))
+            print('boxes',boxes)
+            
+            
+
             '''if len(embeddings_detected) == len(uids):
                 same_len_buffer+=1'''
 
             if len(boxes) == len(bbox):
                 same_len_buffer+=1
+
+            if len(boxes)==0:
+                no_pred+=1
                 
 
             total_predictions+=1
-            if len(class_names) > 0 and set(classname) == set(class_names):
+            if len(class_names) > 0 and set(classname) == set(class_names): #set is not an accurate measure needs to be changed
                 accurate_class_predictions+=1
             
             ''' print('class_names',class_names)
             print('boxes',boxes)
             sys.exit(0)'''
+            if True:
+                
+                visualize(image,bbox,boxes,writer,i)
+                n+=1
 
+            #sys.exit(0)
+
+            
             for box, classname_p, prob in zip(boxes, class_names, probs):
                 x1y1, x2y2 = box
                 x1, y1 = int(x1y1[0]), int(x1y1[1])
@@ -553,15 +606,16 @@ def new_validate(val_loader, detector, ed):
 
     print('ACCURACY CLASS',(accurate_class_predictions*100.0)/total_predictions)
     print('Evaluate the detection result...')
-    print('len acc', (same_len_buffer*100.0)/total_predictions)
-    print('total TARGETS len',len(targets_ev))
+    print('same_len_buffer', (same_len_buffer*100.0)/total_predictions)
+    print('no_pred',(no_pred*100.0)/total_predictions)
+    print('total TARGETS_ev len',len(targets_ev))
     
 
     aps = evaluate(preds_ev, targets_ev, class_names=list(class_dict))
 
     return aps
 
-def new_new_validate(val_loader, detector, mode):
+'''def new_new_validate(val_loader, detector, mode):
 
     if mode=='train':
         data = pd.read_pickle("../data/metadata_imgnet_vid_train.pkl")
@@ -579,10 +633,10 @@ def new_new_validate(val_loader, detector, mode):
 
     with torch.no_grad():
         for i, (image,target) in enumerate(val_loader):
-            '''
-                images = tensor(1,3,224,224)
-                target = tensor(idx) #idx of dval
-            '''
+            
+            #images = tensor(1,3,224,224)
+            #target = tensor(idx) #idx of dval
+            
             targets_ev = defaultdict(list)
             preds_ev = defaultdict(list)
 
@@ -611,7 +665,7 @@ def new_new_validate(val_loader, detector, mode):
     for class_name in new_aps:
         output_aps[class_name] = sum(new_aps[class_name])
 
-    return output_aps
+    return output_aps'''
 
 
 

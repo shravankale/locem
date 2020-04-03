@@ -30,10 +30,10 @@ def xywh_to_xxyy(xc,yc,width,height):
     return [(x0,y0),(x1,y1)]
     
 
-def cropImage(sample,image,xmax,xmin,ymax,ymin):
+'''def cropImage(sample,image,xmax,xmin,ymax,ymin):
 
-    '''if not isinstance(image, np.ndarray):
-            raise ValueError("img is not numpy array -crop",sample)'''
+    #if not isinstance(image, np.ndarray):
+            #raise ValueError("img is not numpy array -crop",sample)
     
     #img = image[ymin:ymax,xmin:xmax,:]
     #img = cv2.resize(image,dsize=(224,224), interpolation = cv2.INTER_AREA)
@@ -41,7 +41,7 @@ def cropImage(sample,image,xmax,xmin,ymax,ymin):
     img = image.crop((xmin,ymin,xmax,ymax))
     img = img.resize((224,224))
     
-    return img
+    return img'''
 def rescaleBoundingBox(height,width,rescaled_dim,xmin,ymin,xmax,ymax):
     
     #Required CNN input dimensions are generally squares hence just one dimension, rescaled_dim
@@ -72,7 +72,7 @@ def drawBoundingBox_xxyy(img,x1,y1,x2,y2):
 class ImageNetVID(data.Dataset):
 
 
-    def __init__(self,root_datasets,path_to_dataset,split,transform=None):
+    def __init__(self,root_datasets,path_to_dataset,split,image_size,S,B,C,X,gamma,transform=None):
         
         print('USING v101 of generator')
     
@@ -90,24 +90,24 @@ class ImageNetVID(data.Dataset):
             
         elif self.split_mode == 'val':
             self.path_to_frames= self.root_datasets+"ILSVRC2015/Data/VID/val/"
-            self.all_data = pd.read_pickle('../../data/metadata_imgnet_vid_val.pkl')
+            self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_val.pkl')
            
         else:
             raise ValueError('Split has to be train or val')
         
-        self.map_vid = pd.read_pickle("../../data/map_vid.pkl")
+        self.map_vid = pd.read_pickle("../data/map_vid.pkl")
         self.map_cat = self.map_vid.to_dict()['category_name']
 
-        self.data_set = pd.read_pickle(path_to_dataset)
+        self.data_set = pd.read_pickle(path_to_dataset)[:10]
         self.unique_keys = self.getKeys(pd.DataFrame(self.data_set))
 
-        self.network_dim = 224
+        self.network_dim = image_size
         mean_rgb = [122.67891434, 116.66876762, 104.00698793]
         self.mean = np.array(mean_rgb, dtype=np.float32)
 
         self.to_tensor = transforms.ToTensor()
 
-        self.S,self.B,self.C,self.X,self.beta,self.gamma = 7,2,30,5,64,1
+        self.S,self.B,self.C,self.X,self.gamma = S,B,C,X,gamma
 
     def encodeTarget_locem(self,target_bbox,target_class,target_id):
         '''
@@ -119,11 +119,7 @@ class ImageNetVID(data.Dataset):
         '''
         #Figure out label encoding
 
-        S = 7
-        B = 2
-        X = 5
-        C = 30
-        gamma = 1
+        S,B,C,X,gamma = self.S,self.B,self.C,self.X,self.gamma
 
         if target_class.size(0) > 1:
             raise ValueError('Need to adjust for target_class > 1')
@@ -137,7 +133,7 @@ class ImageNetVID(data.Dataset):
         #print('pre-norm',boxes)
         
 
-        image_height,image_width = 224,224
+        #image_height,image_width = 224,224
         #boxes /= torch.Tensor([[image_width, image_height, image_width, image_height]]).expand_as(boxes) # normalize (x1, y1, x2, y2) w.r.t. image width/height.
         #print('post-norm',boxes)
         #Figure out label encoding
@@ -180,7 +176,7 @@ class ImageNetVID(data.Dataset):
             Out:
         '''
 
-        S,B,C,X,beta,gamma = self.S,self.B,self.C,self.X,self.beta,self.gamma
+        S,B,C,X,gamma = self.S,self.B,self.C,self.X,self.gamma
 
         #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
         #gamma should be at 40?
@@ -246,7 +242,7 @@ class ImageNetVID(data.Dataset):
             row = other_samples.loc[idx]
             boxes.append([row.xmin,row.ymin,row.xmax,row.ymax])
             #filenames.append(row.file)
-            classnames.append(self.map_cat[sample.cat_code-1])
+            classnames.append(self.map_cat[row.cat_code-1])
             uid = self.unique_keys[
             (self.unique_keys.cat_code==row.cat_code) & (self.unique_keys.snip_id==row.snip_id) & (self.unique_keys.trackid==row.trackid)
             ].index.to_numpy()
@@ -274,7 +270,7 @@ class ImageNetVID(data.Dataset):
         sample_img = cv2.imread(self.path_to_frames+sample.folder+'/'+sample.file+'.JPEG')
         sample_bbox = [[sample.xmin,sample.ymin,sample.xmax,sample.ymax]]
         class_name = [self.map_cat[sample.cat_code-1]]
-        file_name = sample.file
+        file_name = sample.snip_id+sample.file
         sample_uid = self.unique_keys[
             (self.unique_keys.cat_code==sample.cat_code) & (self.unique_keys.snip_id==sample.snip_id) & (self.unique_keys.trackid==sample.trackid)
             ].index.to_numpy()
@@ -288,6 +284,8 @@ class ImageNetVID(data.Dataset):
             class_name = class_name + other_sample_classnames
             #file_name = file_name + other_sample_filenames
             uids = uids + other_uids
+
+       #Do not normalize because detector unormalizes xywh(predited) hence the target should be unnormalized too
 
 
         '''print('Type sample_img',type(sample_img))

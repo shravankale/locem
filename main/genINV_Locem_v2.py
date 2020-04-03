@@ -10,12 +10,12 @@ import xml.etree.ElementTree as ET
 from torch.utils import data
 from torchvision import transforms
 from PIL import Image
-from augmentations import Augment
+from util.augmentations import Augment
 
 class ImageNetVID(data.Dataset):
 
 
-    def __init__(self,root_datasets,path_to_dataset,split,transform=None):
+    def __init__(self,root_datasets,path_to_dataset,split,image_size,S,B,C,X,gamma,transform=None):
         
         print('USING v101 of generator')
     
@@ -34,21 +34,21 @@ class ImageNetVID(data.Dataset):
             
         elif self.split_mode == 'val':
             self.path_to_frames= self.root_datasets+"ILSVRC2015/Data/VID/val/"
-            self.all_data = pd.read_pickle('../../data/metadata_imgnet_vid_val.pkl')
+            self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_val.pkl')
            
         else:
             raise ValueError('Split has to be train or val')
 
-        self.data_set = pd.read_pickle(path_to_dataset)
+        self.data_set = pd.read_pickle(path_to_dataset)[:10]
         self.unique_keys = self.getKeys(pd.DataFrame(self.data_set))
 
-        self.network_dim = 224
+        self.network_dim = image_size
         mean_rgb = [122.67891434, 116.66876762, 104.00698793]
         self.mean = np.array(mean_rgb, dtype=np.float32)
 
         self.to_tensor = transforms.ToTensor()
 
-        self.S,self.B,self.C,self.X,self.beta,self.gamma = 7,2,30,5,64,1
+        self.S,self.B,self.C,self.X,self.gamma = S,B,C,X,gamma
 
     def encodeTarget_locem(self,target_bbox,target_class,target_id):
         '''
@@ -60,11 +60,11 @@ class ImageNetVID(data.Dataset):
         '''
         #Figure out label encoding
 
-        S = 7
-        B = 2
-        X = 5
-        C = 30
-        gamma = 1
+        S = self.S
+        B = self.B
+        X = self.X
+        C = self.C
+        gamma = self.gamma
 
         #if target_class.size(0) > 1:
             #raise ValueError('Need to adjust for target_class > 1')
@@ -78,7 +78,7 @@ class ImageNetVID(data.Dataset):
         #print('pre-norm',boxes)
         
 
-        image_height,image_width = 224,224
+        #image_height,image_width = 224,224
         #boxes /= torch.Tensor([[image_width, image_height, image_width, image_height]]).expand_as(boxes) # normalize (x1, y1, x2, y2) w.r.t. image width/height.
         #print('post-norm',boxes)
         #Figure out label encoding
@@ -123,7 +123,7 @@ class ImageNetVID(data.Dataset):
             Out:
         '''
 
-        S,B,C,X,beta,gamma = self.S,self.B,self.C,self.X,self.beta,self.gamma
+        S,B,C,X,gamma = self.S,self.B,self.C,self.X,self.gamma
 
         #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
         #gamma should be at 40?
@@ -221,6 +221,7 @@ class ImageNetVID(data.Dataset):
         #Positive
         positive_candidate = self.data_set[
             (self.data_set.cat_code==sample.cat_code)& (self.data_set.snip_id==sample.snip_id) & (self.data_set.trackid==sample.trackid)]
+            #CHECK! You might not need the same snip_id, you can just do same cat_code and same trackid --
         #dropping anchor or sample from positive candidates
         if len(positive_candidate) >= 2:
             positive_candidate = positive_candidate.drop(idx) #idx == sample.index
@@ -266,7 +267,7 @@ class ImageNetVID(data.Dataset):
         #Augmentations
        
 
-        if self.split_mode == 'train':
+        if self.split_mode == 'off':
             
 
             #Box Augmentations
@@ -358,14 +359,4 @@ class ImageNetVID(data.Dataset):
         
 
         return images,target
-
-    def check_box(self, box, width, height):
-        
-        for i in range(box.size(1)):
-            if i % 2 ==0: #x1,x2
-                if box[0][i] > width:
-                    print('Problemo -x',box[0][i])
-            else:
-                if box[0][i] > height:
-                    print('Problemo -y',box[0][i])
             

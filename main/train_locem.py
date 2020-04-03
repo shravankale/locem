@@ -110,6 +110,7 @@ X=5
 C=30
 beta=64
 gamma=1
+image_size = 448
 
 def collate_fn(data):
         
@@ -231,11 +232,11 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
         #model = models.__dict__[args.arch](pretrained=True)
-        model = resnet50(pretrained=True)
+        model = resnet50(pretrained=True,S=S,B=B,C=C,X=X,beta=beta)
     else:
         print("=> creating model '{}'".format(args.arch))
         #model = models.__dict__[args.arch]()
-        model = resnet50()
+        model = resnet50(S=S,B=B,C=C,X=X,beta=beta)
 
 
     #model = models.resnet50()
@@ -378,7 +379,7 @@ def main_worker(gpu, ngpus_per_node, args):
             normalize,
         ]))'''
 
-    transform_train = trfms.Compose([
+    '''transform_train = trfms.Compose([
         #add random crop
         #trfms.RandomHorizontalFlip(),
         trfms.ColorJitter(0.2, 0.2, 0.2),
@@ -389,11 +390,11 @@ def main_worker(gpu, ngpus_per_node, args):
     transform_val = trfms.Compose([
         trfms.ToTensor(),
         normalize
-    ])
+    ])'''
     
     #Generators
-    gen_train = ImageNetVID(root_datasets,train_dataset,split='train')
-    gen_val = ImageNetVID(root_datasets,val_dataset,split='val')
+    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X,gamma=gamma)
+    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',image_size=image_size,S=S,B=B,C=C,X=X,gamma=gamma)
 
 
     if args.distributed:
@@ -405,7 +406,7 @@ def main_worker(gpu, ngpus_per_node, args):
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)'''
 
-    train_loader = DataLoader(gen_train,batch_size=args.batch_size,num_workers=args.workers,shuffle=True,collate_fn=collate_fn)
+    train_loader = DataLoader(gen_train,batch_size=args.batch_size,num_workers=args.workers,shuffle=False,collate_fn=collate_fn)
 
 
     '''tl = iter(train_loader)
@@ -498,6 +499,8 @@ def main_worker(gpu, ngpus_per_node, args):
                 'optimizer' : optimizer.state_dict(),
             }, is_best)
 
+    
+
     pickle.dump( metrics_train_all_epochs, open( path_to_disk+"metrics_train_all_epochs.pkl", "wb" ) )
     pickle.dump( metrics_val_all_epochs, open( path_to_disk+"metrics_val_all_epochs.pkl", "wb" ) )
 
@@ -520,7 +523,7 @@ def main_worker(gpu, ngpus_per_node, args):
     print('Max top5: ',max(metrics_val_all_epochs['top5']),np.argmax(np.array(metrics_val_all_epochs['top5'])))
 
 
-    
+    writer.close()
 
     
 
@@ -531,11 +534,12 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
     losses = AverageMeter('Loss', ':.4e')
     loss_class_m = AverageMeter('Class_Loss',':.4e')
     loss_triplet_m = AverageMeter('Triplet_Loss',':.4e')
+    loss_boxes_m = AverageMeter('Boxes_Loss',':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
-        [batch_time, data_time, losses,loss_class_m,loss_triplet_m, top1, top5],
+        [batch_time, data_time, losses,loss_class_m,loss_triplet_m,loss_boxes_m, top1, top5],
         prefix="Epoch: [{}]".format(epoch))
 
     
@@ -567,7 +571,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C])
         #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C]).requires_grad
         #output[:,:,:,X*B+C:] = sigmoid(output[:,:,:,X*B+C:])
-        loss, loss_class, loss_triplet = criterion(output, target)
+        loss, loss_class, loss_triplet,loss_boxes = criterion(output, target)
         #print(loss.item())
         #print(loss_class.item())
         #print(loss_triplet.item())
@@ -582,6 +586,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         losses.update(loss.item(), 1)
         loss_class_m.update(loss_class.item(),1)
         loss_triplet_m.update(loss_triplet.item(),1)
+        loss_boxes_m.update(loss_boxes.item(),1)
 
         top1.update(acc1[0], 1)
         top5.update(acc5[0], 1)
@@ -610,6 +615,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
     writer.add_scalar('Train/Loss', losses.avg, epoch)
     writer.add_scalar('Train/Class_Loss', loss_class_m.avg, epoch)
     writer.add_scalar('Train/Triplet_Loss', loss_triplet_m.avg, epoch)
+    writer.add_scalar('Train/Boxes_Loss',loss_boxes_m.avg,epoch)
     writer.add_scalar('Train/Accuracy/Top1', t1, epoch)
     writer.add_scalar('Train/Accuracy/Top5', t5, epoch)
     writer.flush()
@@ -634,11 +640,12 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
     losses = AverageMeter('Loss', ':.4e')
     loss_class_m = AverageMeter('Class_Loss',':.4e')
     loss_triplet_m = AverageMeter('Triplet_Loss',':.4e')
+    loss_boxes_m = AverageMeter('Boxes_Loss',':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
         len(val_loader),
-        [batch_time, losses,loss_class_m,loss_triplet_m, top1, top5],
+        [batch_time, losses,loss_class_m,loss_triplet_m,loss_boxes_m, top1, top5],
         prefix='Test: ')
 
     # switch to evaluate mode
@@ -663,7 +670,7 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
             #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C])
             #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C]).requires_grad
             #output[:,:,:,X*B+C:] = sigmoid(output[:,:,:,X*B+C:])
-            loss, loss_class, loss_triplet = criterion(output, target)
+            loss, loss_class, loss_triplet,loss_boxes = criterion(output, target)
 
             # measure accuracy and record loss
             #CHECK! The accuracy needs to be fed from the decoderTarget output
@@ -706,6 +713,7 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
             writer.add_scalar('Validate/Loss', losses.avg, epoch)
             writer.add_scalar('Validate/Class_Loss', loss_class_m.avg, epoch)
             writer.add_scalar('Validate/Triplet_Loss', loss_triplet_m.avg, epoch)
+            writer.add_scalar('Validate/Boxes_Loss',loss_boxes_m.avg,epoch)
             writer.add_scalar('Validate/Accuracy/Top1', t1, epoch)
             writer.add_scalar('Validate/Accuracy/Top5', t5, epoch)
             writer.flush()

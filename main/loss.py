@@ -46,6 +46,14 @@ class locemLoss(nn.Module):
         Returns:
             (Tensor) IoU, sized [N, M].
         '''
+
+        '''print('bbox1 size',bbox1.size())
+        print('bbox2 size',bbox2.size())
+        print('bbox1',bbox1)
+        print('bbox2',bbox2)
+        sys.exit(0)'''
+
+
         N = bbox1.size(0)
         M = bbox2.size(0)
 
@@ -158,12 +166,15 @@ class locemLoss(nn.Module):
         coord_pred = pred_tensor[coord_mask].view(-1, N)            # pred tensor on the cells which contain objects. [n_coord, N]
                                                                     # n_coord: number of the cells which contain objects.
         bbox_pred = coord_pred[:, :5*B].contiguous().view(-1, 5)    # [n_coord x B, 5=len([x, y, w, h, conf])]
-        class_pred = coord_pred[:, 5*B:]                           # [n_coord, C]
+        class_pred = coord_pred[:, 5*B:] 
+        
+        #print('bbox_pred',bbox_pred)                          # [n_coord, C]
 
         coord_target = target_tensor[coord_mask].view(-1, N)        # target tensor on the cells which contain objects. [n_coord, N]
                                                                     # n_coord: number of the cells which contain objects.
         bbox_target = coord_target[:, :5*B].contiguous().view(-1, 5)# [n_coord x B, 5=len([x, y, w, h, conf])]
-        class_target = coord_target[:, 5*B:]                        # [n_coord, C] 
+        class_target = coord_target[:, 5*B:]                     # [n_coord, C] 
+        #print('bbox_target',bbox_target)
 
 
         # Compute loss for the cells with no object bbox.
@@ -250,6 +261,9 @@ class locemLoss(nn.Module):
         print('CLASS LOSS',loss_class)
         print('LOSS TRIPLET TYPE',loss_triplet)
         print('LOSS',loss)'''
+
+        loss_class = loss_class/float(batch_size)
+        loss_boxes = (self.lambda_coord * (loss_xy + loss_wh))/float(batch_size)
         
         
-        return loss, loss_class, loss_triplet
+        return loss, loss_class, loss_triplet, loss_boxes

@@ -15,28 +15,29 @@ from main.nn_view import View
 class locEmDetector():
 
     def __init__(self,
-        model_path, class_name_list=None, mean_rgb=[122.67891434, 116.66876762, 104.00698793],
-        conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,
-        gpu_id=2):
+        model, class_name_list=None, mean_rgb=[122.67891434, 116.66876762, 104.00698793],
+        conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.3,
+        gpu_id=2,S=7,B=2,C=30,X=5,beta=64,image_size=224):
 
-        map_vid = pd.read_pickle("../../data/map_vid.pkl")
+        map_vid = pd.read_pickle("../data/map_vid.pkl")
         self.class_name_list = list(map_vid['category_name'])
         #print('self.class_name_list',self.class_name_list)
 
-        self.S, self.B, self.C, self.beta = 7,2,30,64
+        self.S, self.B, self.C, self.beta = S,B,C,beta
 
         self.conf_thresh = conf_thresh
         self.prob_thresh = prob_thresh
         self.nms_thresh = nms_thresh
         self.gpu_id = gpu_id
-        self.model_path = model_path
+        self.image_size=image_size
 
         self.to_tensor = transforms.ToTensor()
         mean_rgb = [122.67891434, 116.66876762, 104.00698793]
         self.mean = np.array(mean_rgb, dtype=np.float32)
 
         #Fetch locEm model
-        self.loceEm = self.getModel(self.model_path)
+        #self.loceEm = self.getModel(self.model_path)
+        self.loceEm = model
         #Set model to validate
         self.loceEm.eval()
 
@@ -46,7 +47,7 @@ class locEmDetector():
         '''
 
 
-    def visualize(self,image,target, boxes, class_names, probs): #From locem.detect()
+    '''def visualize(self,image,target, boxes, class_names, probs): #From locem.detect()
         #Create Writer to the same path as 
         experiment_path = self.model_path.split('/')
         experiment_path = experiment_path[:len(experiment_path)-1]
@@ -63,13 +64,13 @@ class locEmDetector():
             right, bottom = int(right_bottom[0]), int(right_bottom[1]) 
             x1,y1,x2,y2 = left, top, bottom, right
     
-        return 0
+        return 0'''
 
 
 
 
 
-    def getModel(self,model_path):
+    '''def getModel(self,model_path):
 
         S,B,C,beta=self.S, self.B, self.C, self.beta
         X=5
@@ -103,9 +104,11 @@ class locEmDetector():
         model.load_state_dict(checkpoint['state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer'])
 
-        return model
+        return model'''
 
-    def detect(self,img,image_size=224):
+    def detect(self,img):
+
+        image_size=self.image_size
 
         '''
         img = tensor(1,3,224,224)
@@ -284,7 +287,7 @@ class locEmDetector():
                     conf = pred_tensor[j, i, 5*b + 4]
                     prob = conf * class_score
                     if float(prob) < self.prob_thresh:  #If the probability is less than a predifined threshold we ignore the box altogether
-                        continue    #CAREFUL! If both boxes are dropped then we might losse class+embedding
+                        continue    #CAREFUL! If both boxes are dropped then we might losse class+embedding - No it will check the next box
 
                     # Compute box corners (x1, y1, x2, y2) from tensor.
                     box = pred_tensor[j, i, 5*b : 5*b + 4] #[j,i,xc,yc,w,h]
