@@ -121,7 +121,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
+    def __init__(self, block, layers,S=7,B=2,C=30,X=5,gamma=64, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
         super(ResNet, self).__init__()
@@ -131,6 +131,11 @@ class ResNet(nn.Module):
 
         self.inplanes = 64
         self.dilation = 1
+        self.S = S
+        self.B = B
+        self.C = C 
+        self.X = X
+        self.gamma = gamma 
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
@@ -154,10 +159,11 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         #Custom for locem_multihead
-        num_classes = 7*7*(2*5+30+64)
-        self.l1 = nn.Linear(512 * block.expansion,4096)
-        self.relu2 = nn.ReLU()
-        self.fc_locem = nn.Linear(4096, num_classes)
+        #num_classes = 7*7*(2*5+30+64)
+        num_classes = self.S*self.S*(self.X*self.B + self.C + self.gamma)
+        #self.l1 = nn.Linear(512 * block.expansion,4096)
+        #self.relu2 = nn.ReLU()
+        self.fc_locem = nn.Linear(2048, num_classes)
         self.sigmoid = nn.Sigmoid()
         
         
@@ -217,11 +223,11 @@ class ResNet(nn.Module):
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = self.l1(x)
-        x = self.relu2(x)
+        #x = self.l1(x)
+        #x = self.relu2(x)
         x = self.fc_locem(x)
-        x = x.view(-1,7,7,2*5+30+64)
-        x[:,:,:,:40]=self.sigmoid(x[:,:,:,:40])
+        x = x.view(-1,self.S,self.S,self.X*self.B+self.C+self.gamma)
+        x[:,:,:,:self.X*self.B+self.C]=self.sigmoid(x[:,:,:,:self.X*self.B+self.C])
         #x[:,:,:,40:]=F.normalize(x[:,:,:,40:],p=2)
 
         return x
