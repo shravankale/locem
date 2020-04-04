@@ -39,8 +39,9 @@ class ImageNetVID(data.Dataset):
         else:
             raise ValueError('Split has to be train or val')
 
-        self.data_set = pd.read_pickle(path_to_dataset)[:10]
+        self.data_set = pd.read_pickle(path_to_dataset)
         self.unique_keys = self.getKeys(pd.DataFrame(self.data_set))
+        self.data_set = self.data_set[:10]
 
         self.network_dim = image_size
         mean_rgb = [122.67891434, 116.66876762, 104.00698793]
@@ -174,6 +175,9 @@ class ImageNetVID(data.Dataset):
     
         boxes = []
         classes = []
+
+        print('sample.folder',sample.folder)
+        print('sample.file',sample.file)
         
         other_samples = all_data[(all_data.folder==sample.folder)&(all_data.file==sample.file)]
         #If there is only 1 object in image then there is nothing to add
@@ -244,7 +248,7 @@ class ImageNetVID(data.Dataset):
         #Negative
         #WE WONT KEEP THE SNIP_ID==sample.SNIP_ID BECAUSE THE SAME IMAGE WITH 2 DIFFERENT OBJECTS COULD BE CONSIDERED NEGATIVE
         negative_candidate = self.data_set[
-            (self.data_set.cat_code==sample.cat_code)& (self.data_set.snip_id!=sample.snip_id)]
+            (self.data_set.cat_code==sample.cat_code)& (self.data_set.snip_id!=sample.snip_id) &(self.data_set.trackid==sample.trackid)]
     
         if len(negative_candidate) == 0:
             negative_candidate = self.data_set[(self.data_set.cat_code!=sample.cat_code)& (self.data_set.snip_id!=sample.snip_id)]
@@ -267,7 +271,7 @@ class ImageNetVID(data.Dataset):
         #Augmentations
        
 
-        if self.split_mode == 'off':
+        if self.split_mode == 'train':
             
 
             #Box Augmentations
@@ -301,9 +305,9 @@ class ImageNetVID(data.Dataset):
             positive_img, positive_bbox, positive_class = self.aug.random_shift(positive_img, positive_bbox, positive_class)
             negative_img, negative_bbox, negative_class = self.aug.random_shift(negative_img, negative_bbox, negative_class)
 
-            sample_img, sample_bbox, sample_class = self.aug.random_crop(sample_img, sample_bbox, sample_class)
+            '''sample_img, sample_bbox, sample_class = self.aug.random_crop(sample_img, sample_bbox, sample_class)
             positive_img, positive_bbox, positive_class = self.aug.random_crop(positive_img, positive_bbox, positive_class)
-            negative_img, negative_bbox, negative_class = self.aug.random_crop(negative_img, negative_bbox, negative_class)
+            negative_img, negative_bbox, negative_class = self.aug.random_crop(negative_img, negative_bbox, negative_class)'''
 
         #Division issue
 
@@ -313,11 +317,11 @@ class ImageNetVID(data.Dataset):
 
         #Normalize Bounding boxes
 
-        sample_bbox = sample_bbox/(torch.tensor([w_sample,h_sample,w_sample,h_sample],dtype=torch.float)).view(1,-1)
+        sample_bbox = sample_bbox/((torch.tensor([w_sample,h_sample,w_sample,h_sample],dtype=torch.float)).view(1,-1))
 
-        positive_bbox = positive_bbox/(torch.tensor([w_positive,h_positive,w_positive,h_positive],dtype=torch.float)).view(1,-1)
+        positive_bbox = positive_bbox/((torch.tensor([w_positive,h_positive,w_positive,h_positive],dtype=torch.float)).view(1,-1))
 
-        negative_bbox = negative_bbox/(torch.tensor([w_negative,h_negative,w_negative,h_negative],dtype=torch.float)).view(1,-1)
+        negative_bbox = negative_bbox/((torch.tensor([w_negative,h_negative,w_negative,h_negative],dtype=torch.float)).view(1,-1))
 
 
         #Encoding Target
@@ -337,16 +341,16 @@ class ImageNetVID(data.Dataset):
         negative_img = cv2.resize(negative_img, dsize=(self.network_dim, self.network_dim), interpolation=cv2.INTER_LINEAR)
 
         #CVTCOLOR
-        '''sample_img = cv2.cvtColor(sample_img, cv2.COLOR_BGR2RGB)
-        positive_img = cv2.cvtColor(positive_img, cv2.COLOR_BGR2RGB)
-        negative_img = cv2.cvtColor(negative_img, cv2.COLOR_BGR2RGB)'''
+        #sample_img = cv2.cvtColor(sample_img, cv2.COLOR_BGR2RGB)
+        #positive_img = cv2.cvtColor(positive_img, cv2.COLOR_BGR2RGB)
+        #negative_img = cv2.cvtColor(negative_img, cv2.COLOR_BGR2RGB)
 
         #Image Normalization - # normalize from -1.0 to 1.0.
 
         sample_img = (sample_img - self.mean) / 255.0
         positive_img = (positive_img - self.mean) / 255.0
         negative_img = (negative_img - self.mean) / 255.0
-
+        
         #Image to Tensor
         sample_img = self.to_tensor(sample_img)
         positive_img = self.to_tensor(positive_img)
@@ -356,7 +360,11 @@ class ImageNetVID(data.Dataset):
 
         images = torch.stack([sample_img,positive_img,negative_img],dim=0)
         target = torch.stack([sample_target,positive_target,negative_target], dim=0)
-        
 
+        
+        #images = np.stack([sample_img,positive_img,negative_img],axis=0)
+        #target = torch.stack([sample_bbox,positive_bbox,negative_bbox],dim=0)
+
+        #return sample_img,positive_img,negative_img,sample_bbox,positive_bbox,negative_bbox
         return images,target
             
