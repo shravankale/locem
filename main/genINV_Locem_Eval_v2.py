@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-import os, fnmatch, re, cv2, random
+import os, fnmatch, re, cv2, random, pickle
 import torch
 #import imgaug as ia
 #import imageio
@@ -90,7 +90,8 @@ class ImageNetVID(data.Dataset):
             
         elif self.split_mode == 'val':
             self.path_to_frames= self.root_datasets+"ILSVRC2015/Data/VID/val/"
-            self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_val.pkl')
+            #self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_val.pkl') #SWITCH TO NEW
+            self.all_data = pickle.load(open("../data/metadata_imgnet_vid_folderFile_val.pkl","rb"))
            
         else:
             raise ValueError('Split has to be train or val')
@@ -253,6 +254,36 @@ class ImageNetVID(data.Dataset):
         #classes = torch.tensor(classes,dtype=torch.float)
         
         return boxes,classnames,uids
+
+    '''def getOtherObjects2(self,sample,all_data):
+
+        boxes = []
+        classes = []
+        uids = []
+
+        other_samples = all_data[(sample.folder,sample.file)]
+        
+        #If there is only 1 object in image then there is nothing to add
+        if len(other_samples)==1:
+            return [],[],[]
+        
+        #Dropping sample from other
+        other_samples.remove([sample.cat_code,sample.snip_id,sample.trackid,sample.xmin,sample.ymin,sample.xmax,sample.ymax])
+
+        for item in other_samples:
+            cat_code,snip_id,trackid,xmin,ymin,xmax,ymax = item
+            cat_code = int(cat_code)
+            trackid = int(trackid)
+
+            boxes.append([xmin,ymin,xmax,ymax])
+            classes.append(self.map_cat[cat_code - 1])
+            uid = self.unique_keys[
+            (self.unique_keys.cat_code==cat_code) & (self.unique_keys.snip_id==snip_id) & (self.unique_keys.trackid==trackid)
+            ].index.to_numpy()
+            uids.append(int(uid))
+
+
+        return boxes,classes,uids'''
         
     def __len__(self):
 
@@ -279,7 +310,7 @@ class ImageNetVID(data.Dataset):
 
         #Add uids from other samples in getotherobjectsmethod
 
-        other_sample_boxes,other_sample_classnames,other_uids = self.getOtherObjects(sample,self.data_set,self.all_data)
+        other_sample_boxes,other_sample_classnames,other_uids = self.getOtherObjects(sample,self.all_data)
         if len(other_sample_boxes) > 0:
             sample_bbox = sample_bbox + other_sample_boxes
             class_name = class_name + other_sample_classnames

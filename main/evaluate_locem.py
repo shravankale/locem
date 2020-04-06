@@ -324,7 +324,7 @@ def main_worker(gpu, ngpus_per_node, args):
     writer = SummaryWriter(path_to_disk)
 
     detector = locEmDetector(model,conf_thresh=0.2, prob_thresh=0.2, nms_thresh=0.60,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
-    aps = new_validate(train_loader, detector, ed,writer)
+    aps = new_validate(val_loader, detector, ed,writer)
 
     '''print('Mean APS',np.mean(aps))
 
@@ -530,12 +530,12 @@ def new_validate(val_loader, detector, ed,writer):
             print('classname',classname)
             print('filename',filename)'''
             
-            '''
-            print("TYPES")
+            
+            '''print("TYPES")
 
             print('image',type(image))
-            print('bbox',type(bbox))
-            print('classname',type(classname))
+            print('bbox',type(bbox[0]))
+            print('classname',type(classname[0]))
             print('filename',type(filename))'''
             
             for b in range(len(bbox)):
