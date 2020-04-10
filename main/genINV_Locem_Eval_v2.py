@@ -72,7 +72,7 @@ def drawBoundingBox_xxyy(img,x1,y1,x2,y2):
 class ImageNetVID(data.Dataset):
 
 
-    def __init__(self,root_datasets,path_to_dataset,split,image_size,S,B,C,X,gamma,transform=None):
+    def __init__(self,root_datasets,path_to_dataset,split,image_size,S,B,C,X,transform=None):
         
         print('USING v101 of generator')
     
@@ -109,16 +109,16 @@ class ImageNetVID(data.Dataset):
 
         self.to_tensor = transforms.ToTensor()
 
-        self.S,self.B,self.C,self.X,self.gamma = S,B,C,X,gamma
+        self.S,self.B,self.C,self.X = S,B,C,X
 
-    def encodeTarget_locem(self,target_bbox,target_class,target_id):
-        '''
-            target_bbox = [xmax,xmin,ymax,ymin] #~~ [x2,x1,y2,y1]
-            target_class = int
-            target_id = int
-            target_output = (S,S,B*X+C+gama)
+    '''def encodeTarget_locem(self,target_bbox,target_class,target_id):
+    
+            #target_bbox = [xmax,xmin,ymax,ymin] #~~ [x2,x1,y2,y1]
+            #target_class = int
+            #target_id = int
+            #target_output = (S,S,B*X+C+gama)
 
-        '''
+        
         #Figure out label encoding
 
         S,B,C,X,gamma = self.S,self.B,self.C,self.X,self.gamma
@@ -173,10 +173,6 @@ class ImageNetVID(data.Dataset):
 
     def class_decoder(self,pred_tensor,target_tensor,accuracy):
 
-        '''
-            Args:
-            Out:
-        '''
 
         S,B,C,X,gamma = self.S,self.B,self.C,self.X,self.gamma
 
@@ -198,7 +194,7 @@ class ImageNetVID(data.Dataset):
 
         acc1, acc5 = accuracy(output, target, topk=(1, 5))
 
-        return acc1, acc5
+        return acc1, acc5'''
 
     def getKeys(self,dataset):
 
