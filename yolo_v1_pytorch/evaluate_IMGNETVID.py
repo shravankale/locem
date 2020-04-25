@@ -40,7 +40,8 @@ sys.path.append('..')
 from collections import defaultdict
 from main.genINV_Locem_Eval_v2 import ImageNetVID
 from detect import yoloDetector
-from r50_locem import resnet50
+from r50_yolo import resnet50
+from torchvision.utils import make_grid
 
 from statistics import mean 
 import pickle,cv2
@@ -104,9 +105,11 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 parser.add_argument('-ep','--experiment_path', type=str, help="Name of the experiment that contains the best model")
 #parser.add_argument('-pd','--path_to_disk',default='/disk/shravank/imageNet_ResNet50_savedModel/', type=str, help="Path to disk")
 
+#python evaluate_IMGNETVID.py -a resnet50 --epochs 1 -b 1 -e -en g4_yolob_e300b64_v1 --resume /mnt/data1/shravank/results/locem/main/run/g4_yolob_e300b64_v1/checkpoint.pth.tar
+
 
 best_acc1 = 0
-path_to_disk = '/disk/shravank/results/locem/main/run/'
+path_to_disk = '/mnt/data1/shravank/results/locem/main/run/'
 
 S=7
 B=2
@@ -204,13 +207,13 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
         #model = models.__dict__[args.arch](pretrained=True)
-         model = resnet50(pretrained=True,S=S,B=B,C=C,X=X)
+        model = resnet50(pretrained=True,S=S,B=B,C=C,X=X)
     else:
         print("=> creating model '{}'".format(args.arch))
         #model = models.__dict__[args.arch]()
         model = resnet50(S=S,B=B,C=C,X=X)
 
-    num_ftrs = model.fc.in_features
+    #num_ftrs = model.fc.in_features
     #model.fc = nn.Linear(num_ftrs, final_layer_units)
 
     #SIGMOID WAS ADDED BECAUSE SOME OF THE PREDICTED VALUES WERE NEGATIVE
@@ -264,7 +267,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # define loss function (criterion) and optimizer
     #criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    criterion = Loss(eature_size=S, num_bboxes=B, num_classes=C, lambda_coord=5.0, lambda_noobj=0.5)
+    criterion = Loss(feature_size=S, num_bboxes=B, num_classes=C, lambda_coord=5.0, lambda_noobj=0.5)
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
@@ -282,15 +285,19 @@ def main_worker(gpu, ngpus_per_node, args):
                 # Map model to be loaded to specified single gpu.
                 loc = 'cuda:{}'.format(args.gpu)
                 checkpoint = torch.load(args.resume, map_location=loc)
-            args.start_epoch = checkpoint['epoch']
-            best_acc1 = checkpoint['best_acc1']
+            #print('checkpoint',checkpoint.keys())
+            #args.start_epoch = checkpoint['epoch']
+            #best_acc1 = checkpoint['best_acc1']
             if args.gpu is not None:
                 # best_acc1 may be from a checkpoint from a different GPU
                 best_acc1 = best_acc1.to(args.gpu)
-            model.load_state_dict(checkpoint['state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
+            #model.load_state_dict(checkpoint['state_dict'])
+            model.load_state_dict(checkpoint)
+            #optimizer.load_state_dict(checkpoint['optimizer'])
+            #optimizer.load_state_dict(checkpoint)
+            #print("=> loaded checkpoint '{}' (epoch {})"
+                  #.format(args.resume, checkpoint['epoch']))
+            print("Loaded checkpoint")
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
 
@@ -303,7 +310,7 @@ def main_worker(gpu, ngpus_per_node, args):
     train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
     #best val dataset has _new
     val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
-    root_datasets = '/disk/shravank/datasets/'
+    root_datasets = '/mnt/data1/shravank/datasets/'
 
 
     '''transform = trfms.Compose([
@@ -322,10 +329,15 @@ def main_worker(gpu, ngpus_per_node, args):
     val_loader = DataLoader(gen_val,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
 
     writer = SummaryWriter(path_to_disk)
+    #gt_file = open("../mAP/input/ground-truth/gt.txt", "a")
+    #dt_file = open("../mAP/input/detection-results/dt.txt", "a")
 
     #detector = yoloDetector(args.experiment_path)
-    detector = locEmDetector(model,conf_thresh=0.2, prob_thresh=0.2, nms_thresh=0.60,S=S,B=B,C=C,X=X,image_size=image_size)
-    aps = new_validate(val_loader, detector,writer)
+    detector = yoloDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,image_size=image_size)
+    aps = new_validate(val_loader, detector, writer)
+
+    #gt_file.close()
+    #dt_file.close()
 
     '''print('Mean APS',np.mean(aps))
 
@@ -490,7 +502,7 @@ def visualize(image,target_boxes,predicted_boxes,writer,n):
 
     return None
         
-def new_validate(val_loader, detector):
+def new_validate(val_loader, detector,writer):
 
 
     #Switch to evaluate mode
@@ -530,6 +542,9 @@ def new_validate(val_loader, detector):
 
                 x1,y1,x2,y2 = bbox[b]
                 targets_ev[(filename,classname[b])].append([x1,y1,x2,y2])
+                '''out = ' '.join(str(e) for e in [classname[b],x1,y1,x2,y2])
+                gt_file.write(out)'''
+                #gt_file.write('\n')
 
             #preds_ev[class_name].append([sample.file, 0.99, x1, y1, x2, y2])
             boxes, class_names, probs = detector.detect(image)
@@ -551,7 +566,11 @@ def new_validate(val_loader, detector):
                 x1y1, x2y2 = box
                 x1, y1 = int(x1y1[0]), int(x1y1[1])
                 x2, y2 = int(x2y2[0]), int(x2y2[1])
-                preds_ev[classname].append([filename, prob, x1, y1, x2, y2])
+                preds_ev[classname_p].append([filename, prob, x1, y1, x2, y2])
+
+                '''out = ' '.join(str(e) for e in [classname_p,prob,x1,y1,x2,y2])
+                dt_file.write(out)
+                dt_file.write('\n')'''
 
     print('ACCURACY CLASS',(accurate_class_predictions*100.0)/total_predictions)
     print('Evaluate the detection result...')

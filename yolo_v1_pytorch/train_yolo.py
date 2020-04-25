@@ -43,8 +43,8 @@ print('CUDA device_count: {}'.format(torch.cuda.device_count()))
 # Path to checkpoint file containing pre-trained DarkNet weight.
 #checkpoint_path = 'weights/darknet/model_best.pth.tar'
 
-path_to_disk = '/disk/shravank/results/locem/main/run/'
-experiment_name = 'g4_yolob_e300b32_v1'
+path_to_disk = '/mnt/data1/shravank/results/locem/main/run/'
+experiment_name = 'g4_yolob_e300b64_v1'
 path_to_disk = path_to_disk + experiment_name + '/'
 # Frequency to print/log the results.
 print_freq = 5
@@ -63,7 +63,7 @@ base_lr = 0.01
 momentum = 0.9
 weight_decay = 1.0e-4
 num_epochs = 300
-batch_size = 32
+batch_size = 64
 
 # Learning rate scheduling.
 def update_lr(optimizer, epoch, burnin_base, burnin_exp=4.0):
@@ -125,11 +125,11 @@ optimizer = torch.optim.SGD(yolo.parameters(), lr=init_lr, momentum=momentum, we
 train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
 #best val dataset has _new
 val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
-root_datasets = '/disk/shravank/datasets/'
+root_datasets = '/mnt/data1/shravank/datasets/'
 
 # Load Pascal-VOC dataset.
 gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X)
-train_loader = DataLoader(gen_train,batch_size=batch_size,num_workers=4,shuffle=True)
+train_loader = DataLoader(gen_train,batch_size=batch_size,num_workers=3,shuffle=True)
 
 gen_val = ImageNetVID(root_datasets,val_dataset,split='val',image_size=image_size,S=S,B=B,C=C,X=X)
 val_loader = DataLoader(gen_val,batch_size=batch_size)

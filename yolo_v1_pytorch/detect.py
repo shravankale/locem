@@ -11,7 +11,7 @@ import pandas as pd
 
 from darknet import DarkNet
 from yolo_v1 import YOLOv1
-f#rom main.nn_view import View
+#from main.nn_view import View
 
 
 '''def visualize_boxes(image_bgr, boxes, class_names, probs, name_bgr_dict=None, line_thickness=2):
@@ -124,10 +124,10 @@ class yoloDetector:
             probs_detected: (list of float) list of probability(=confidence x class_score) for each detected box.
         """
 
-        S,B,C,beta = self.S, self.B, self.C
+        S,B,C = self.S, self.B, self.C
 
         h, w, _ = img.shape
-        img = cv2.resize(img, dsize=(image_size, image_size), interpolation=cv2.INTER_LINEAR)
+        img = cv2.resize(img, dsize=(self.image_size, self.image_size), interpolation=cv2.INTER_LINEAR)
         #img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) # assuming the model is trained with RGB images.
         img = (img - self.mean) / 255.0
         img = self.to_tensor(img) # [image_size, image_size, 3] -> [3, image_size, image_size]
