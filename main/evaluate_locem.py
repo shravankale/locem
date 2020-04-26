@@ -108,7 +108,7 @@ parser.add_argument('-en','--experiment_path', type=str, help="Name of the exper
 
 
 best_acc1 = 0
-path_to_disk = '/disk/shravank/results/locem/main/run/'
+path_to_disk = '/mnt/data1/shravank/results/locem/main/run/'
 
 S=7
 B=2
@@ -299,7 +299,7 @@ def main_worker(gpu, ngpus_per_node, args):
     train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
     #best val dataset has _new
     val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
-    root_datasets = '/disk/shravank/datasets/'
+    root_datasets = '/mnt/data1/shravank/datasets/'
 
 
     '''transform = trfms.Compose([
@@ -311,8 +311,8 @@ def main_worker(gpu, ngpus_per_node, args):
     ])'''
     
     #Generators
-    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X,gamma=gamma)
-    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',image_size=image_size,S=S,B=B,C=C,X=X,gamma=gamma)
+    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X)
+    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',image_size=image_size,S=S,B=B,C=C,X=X)
 
     train_loader = DataLoader(gen_train,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
     val_loader = DataLoader(gen_val,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
@@ -322,9 +322,15 @@ def main_worker(gpu, ngpus_per_node, args):
     #detector = locEmDetector(args.experiment_path,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.30)
 
     writer = SummaryWriter(path_to_disk)
+    ed = EmbedDatabase(d=64)
 
-    detector = locEmDetector(model,conf_thresh=0.2, prob_thresh=0.2, nms_thresh=0.60,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
-    aps = new_validate(val_loader, detector, ed,writer)
+    detector = locEmDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
+    aps = new_validate(train_loader, detector, ed,writer)
+
+    topk1,topk5 = ed.idAccuracy()
+
+    print('TOPK1:   ',topk1)
+    print('TOPK5:   ',topk5)
 
     '''print('Mean APS',np.mean(aps))
 
@@ -488,6 +494,62 @@ def visualize(image,target_boxes,predicted_boxes,writer,n):
 
 
     return None
+
+def compute_iou(boxA,boxB,epsilon=1e-5):
+
+    '''
+    boxA/B: torch.tensor([x1,y1,x2,y2])
+    '''
+
+    #boxA = boxA.numpy()
+    #boxB = boxB.numpy()
+
+    #Intersection coordinates
+    x1 = max(boxA[0],boxB[0])
+    y1 = max(boxA[1],boxB[1])
+    x2 = min(boxA[2],boxB[2])
+    y2 = min(boxA[3],boxB[3])
+
+    #Intersection area
+    w = (x2-x1)
+    h = (y2-y1)
+
+    #No overlap
+    if (w<0) or (h<0):
+        return 0.0
+    
+    intersection_area = w * h
+
+    #Union
+    arear_boxa = (a[2]-a[0]) * (a[3]-a[1])
+    area_boxb = (b[2]-b[0]) * (b[3]-b[1])
+    area_union = area_boxa + area_boxb - intersection_area
+
+    iou = intersection_area / (area_union + epsilon)
+
+    return iou
+
+def assign_uids(gt_boxes,uids,pd_boxes,embeddings,ed):
+
+    '''
+    gt_boxes: list([x1,y1,x2,y2])
+    pd_boxes: for box in predicted_boxes:
+            x1y1, x2y2 = box
+            x1, y1 = int(x1y1[0]), int(x1y1[1])
+            x2, y2 = int(x2y2[0]), int(x2y2[1])
+    uids = list(ints)
+    '''
+    threshold = 0.7
+
+    if len(pd_boxes) == 0:
+        return
+
+    for i,gtb in enumerate(gt_boxes):
+        for j,pdb in enumerate(pd_boxes):
+            if compute_iou(gtb,pdb) > threshold:
+                ed.addIndex(embeddings[j],uids[i])
+    
+    return 
         
 def new_validate(val_loader, detector, ed,writer):
 
@@ -571,7 +633,9 @@ def new_validate(val_loader, detector, ed,writer):
             print('len bbox',len(bbox))
             print('boxes',boxes)
             
-            
+            #Assigning uids and saving embeddings to ed
+            assign_uids(bbox,uids,boxes,embeddings_detected,ed)
+            print('Finished assiging ids')
 
             '''if len(embeddings_detected) == len(uids):
                 same_len_buffer+=1'''
