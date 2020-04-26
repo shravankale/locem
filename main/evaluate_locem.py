@@ -325,7 +325,7 @@ def main_worker(gpu, ngpus_per_node, args):
     ed = EmbedDatabase(d=64)
 
     detector = locEmDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
-    aps = new_validate(train_loader, detector, ed,writer)
+    aps = new_validate(val_loader, detector, ed,writer)
 
     topk1,topk5 = ed.idAccuracy()
 
@@ -546,6 +546,7 @@ def assign_uids(gt_boxes,uids,pd_boxes,embeddings,ed):
 
     for i,gtb in enumerate(gt_boxes):
         for j,pdb in enumerate(pd_boxes):
+            #Change assignment to max iou
             if compute_iou(gtb,pdb) > threshold:
                 ed.addIndex(embeddings[j],uids[i])
     
@@ -587,13 +588,13 @@ def new_validate(val_loader, detector, ed,writer):
                 target = tensor(idx) #idx of dval
             '''
         
-            '''print('image',image.shape)
+            ''' print('image',image.shape)
             print('bbox',bbox)
             print('classname',classname)
-            print('filename',filename)'''
+            print('filename',filename)
             
             
-            '''print("TYPES")
+            print("TYPES")
 
             print('image',type(image))
             print('bbox',type(bbox[0]))
@@ -634,7 +635,7 @@ def new_validate(val_loader, detector, ed,writer):
             print('boxes',boxes)
             
             #Assigning uids and saving embeddings to ed
-            assign_uids(bbox,uids,boxes,embeddings_detected,ed)
+            #assign_uids(bbox,uids,boxes,embeddings_detected,ed)
             print('Finished assiging ids')
 
             '''if len(embeddings_detected) == len(uids):
