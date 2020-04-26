@@ -90,8 +90,8 @@ class ImageNetVID(data.Dataset):
             
         elif self.split_mode == 'val':
             self.path_to_frames= self.root_datasets+"ILSVRC2015/Data/VID/val/"
-            #self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_val.pkl') #SWITCH TO NEW
-            self.all_data = pickle.load(open("../data/metadata_imgnet_vid_folderFile_val.pkl","rb"))
+            self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_val_new.pkl') #SWITCH TO NEW
+            #self.all_data = pickle.load(open("../data/metadata_imgnet_vid_folderFile_val.pkl","rb"))
            
         else:
             raise ValueError('Split has to be train or val')
@@ -306,7 +306,7 @@ class ImageNetVID(data.Dataset):
 
         #Add uids from other samples in getotherobjectsmethod
 
-        other_sample_boxes,other_sample_classnames,other_uids = self.getOtherObjects(sample,self.all_data)
+        other_sample_boxes,other_sample_classnames,other_uids = self.getOtherObjects(sample,self.data_set,self.all_data)
         if len(other_sample_boxes) > 0:
             sample_bbox = sample_bbox + other_sample_boxes
             class_name = class_name + other_sample_classnames

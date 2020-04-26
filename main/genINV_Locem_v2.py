@@ -175,9 +175,6 @@ class ImageNetVID(data.Dataset):
     
         boxes = []
         classes = []
-
-        print('sample.folder',sample.folder)
-        print('sample.file',sample.file)
         
         other_samples = all_data[(all_data.folder==sample.folder)&(all_data.file==sample.file)]
         #If there is only 1 object in image then there is nothing to add
@@ -275,9 +272,9 @@ class ImageNetVID(data.Dataset):
             
 
             #Box Augmentations
-            sample_img, sample_bbox = self.aug.random_flip(sample_img, torch.Tensor(sample_bbox))
-            positive_img, positive_bbox = self.aug.random_flip(positive_img, torch.Tensor(positive_bbox))
-            negative_img, negative_bbox = self.aug.random_flip(negative_img, torch.Tensor(negative_bbox))
+            sample_img, sample_bbox = self.aug.random_flip(sample_img, sample_bbox)
+            positive_img, positive_bbox = self.aug.random_flip(positive_img, positive_bbox)
+            negative_img, negative_bbox = self.aug.random_flip(negative_img, negative_bbox)
             
             sample_img, sample_bbox = self.aug.random_scale(sample_img, sample_bbox)
             positive_img, positive_bbox = self.aug.random_scale(positive_img, positive_bbox)
@@ -305,7 +302,7 @@ class ImageNetVID(data.Dataset):
             positive_img, positive_bbox, positive_class = self.aug.random_shift(positive_img, positive_bbox, positive_class)
             negative_img, negative_bbox, negative_class = self.aug.random_shift(negative_img, negative_bbox, negative_class)
 
-            '''sample_img, sample_bbox, sample_class = self.aug.random_crop(sample_img, sample_bbox, sample_class)
+            ''' sample_img, sample_bbox, sample_class = self.aug.random_crop(sample_img, sample_bbox, sample_class)
             positive_img, positive_bbox, positive_class = self.aug.random_crop(positive_img, positive_bbox, positive_class)
             negative_img, negative_bbox, negative_class = self.aug.random_crop(negative_img, negative_bbox, negative_class)'''
 
