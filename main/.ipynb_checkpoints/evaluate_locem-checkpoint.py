@@ -21,8 +21,6 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 torch.autograd.set_detect_anomaly(True)
-from torchvision.utils import make_grid
-from r50_locem import resnet50
 
 
 #For LocEm
@@ -40,12 +38,11 @@ sys.path.append('..')
 
 #For Eval
 from collections import defaultdict
-from genINV_Locem_Eval_v2 import ImageNetVID
+from genINV_Locem_Eval_v101 import ImageNetVID
 from detect_locem import locEmDetector
-from util.EmbedDatabase_v3 import EmbedDatabase
 
 from statistics import mean 
-import pickle,cv2
+import pickle
 
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
@@ -103,12 +100,12 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'N processes per node, which has N GPUs. This is the '
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
-parser.add_argument('-en','--experiment_path', type=str, help="Name of the experiment that contains the best model")
+parser.add_argument('-ep','--experiment_path', type=str, help="Name of the experiment that contains the best model")
 #parser.add_argument('-pd','--path_to_disk',default='/disk/shravank/imageNet_ResNet50_savedModel/', type=str, help="Path to disk")
 
 
 best_acc1 = 0
-path_to_disk = '/mnt/data1/shravank/results/locem/main/run/'
+path_to_disk = '/disk/shravank/results/locem/main/run/'
 
 S=7
 B=2
@@ -116,7 +113,6 @@ X=5
 C=30
 beta=64
 gamma=1
-image_size = 224
 
 def rescaleBoundingBox(height,width,rescaled_dim,xmin,ymin,xmax,ymax):
     
@@ -140,16 +136,8 @@ def collate_fn(data):
     print("type data[2]",type(data[0][2]))'''
 
     #sys.exit(0)
-    '''images = torch.tensor(np.transpose(data[0][0],(2,0,1)))
-    bboxes = torch.tensor(data[0][1])'''
 
-    n = len(data[0])
-    out = []
-
-    for i in range(n):
-        out.append(data[0][i])
-
-    return out
+    return [data[0][0],data[0][1],data[0][2],data[0][3]]
 
 def main():
     args = parser.parse_args()
@@ -209,14 +197,12 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
-        #model = models.__dict__[args.arch](pretrained=True)
-        model = resnet50(pretrained=True,S=S,B=B,C=C,X=X,beta=beta)
+        model = models.__dict__[args.arch](pretrained=True)
     else:
         print("=> creating model '{}'".format(args.arch))
-        #model = models.__dict__[args.arch]()
-        model = resnet50(S=S,B=B,C=C,X=X,beta=beta)
+        model = models.__dict__[args.arch]()
 
-    #num_ftrs = model.fc.in_features
+    num_ftrs = model.fc.in_features
     #model.fc = nn.Linear(num_ftrs, final_layer_units)
 
     #SIGMOID WAS ADDED BECAUSE SOME OF THE PREDICTED VALUES WERE NEGATIVE
@@ -224,10 +210,20 @@ def main_worker(gpu, ngpus_per_node, args):
     #BUT SOME PREDICTED VALUES MIGHT NEED TO BE NEGATIVE
     #https://www.reddit.com/r/deeplearning/comments/9z50qi/confused_about_yolo_loss_function/
 
+    
+    num_classes = S*S*(B*X+C+beta)
+    model.fc = nn.Sequential(
+        nn.Linear(num_ftrs,4096),
+        #nn.LeakyReLU(0.1, inplace=True),
+        nn.ReLU(),
+        #nn.Dropout(0.5, inplace=False),
+        nn.Linear(4096,num_classes),
+        nn.Sigmoid(),
+        View((-1,S,S,B*X+C+beta))
+    )
     print(model)
 
-    #Importing Embedder Database
-    ed = EmbedDatabase()
+    
 
     if args.distributed:
         # For multiprocessing distributed, DistributedDataParallel constructor
@@ -296,10 +292,10 @@ def main_worker(gpu, ngpus_per_node, args):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
-    train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
+    train_dataset = "../../data/metadata_imgnet_vid_train_n2.pkl"
     #best val dataset has _new
-    val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
-    root_datasets = '/mnt/data1/shravank/datasets/'
+    val_dataset = "../../data/metadata_imgnet_vid_val_n2.pkl"
+    root_datasets = "../../../../datasets/"
 
 
     '''transform = trfms.Compose([
@@ -311,30 +307,18 @@ def main_worker(gpu, ngpus_per_node, args):
     ])'''
     
     #Generators
-    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X)
-    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',image_size=image_size,S=S,B=B,C=C,X=X)
+    gen_train = ImageNetVID(root_datasets,train_dataset,split='train')
+    gen_val = ImageNetVID(root_datasets,val_dataset,split='val')
 
-    train_loader = DataLoader(gen_train,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
-    val_loader = DataLoader(gen_val,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
+    train_loader = DataLoader(gen_train,batch_size=1,shuffle=False,collate_fn=collate_fn)
+    val_loader = DataLoader(gen_val,batch_size=1,shuffle=True,collate_fn=collate_fn)
 
-    print('Len of loader',len(train_loader))
+    detector = locEmDetector(args.experiment_path)
+    aps = new_validate(val_loader, detector)
 
-    #detector = locEmDetector(args.experiment_path,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.30)
+    print('Mean APS',np.mean(aps))
 
-    writer = SummaryWriter(path_to_disk)
-    ed = EmbedDatabase(d=64)
-
-    detector = locEmDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
-    aps = new_validate(val_loader, detector, ed,writer)
-
-    topk1,topk5 = ed.idAccuracy()
-
-    print('TOPK1:   ',topk1)
-    print('TOPK5:   ',topk5)
-
-    '''print('Mean APS',np.mean(aps))
-
-    map_vid = pd.read_pickle("../data/map_vid.pkl")
+    map_vid = pd.read_pickle("../../data/map_vid.pkl")
     map_cat = map_vid.to_dict()['category_name']
     #dval = pd.read_pickle("../data/metadata_imgnet_vid_val_n2.pkl")
     class_dict = {map_cat[i] for i in map_cat}
@@ -342,54 +326,12 @@ def main_worker(gpu, ngpus_per_node, args):
     class_aps_dict = {}
     for i,j in zip(class_dict,aps):
         class_aps_dict[i]=j
-    print(class_aps_dict)'''
+    print(class_aps_dict)
 
-    writer.close()
+    #writer = SummaryWriter(path_to_disk)
 
     return
 
-'''def class_decoder(pred_tensor,target_tensor,accuracy):
-
-        if len(pred_tensor)==0:
-            return 0,0
-        #S,B,C,X = self.S,self.B,self.C,self.X
-
-        #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
-        #gamma should be at 40?
-        #class_mask_target = (target_tensor[:,:,:,B*X+C]==1) | (target_tensor[:,:,:,B*X+C]==2) | (target_tensor[:,:,:,B*X+C]==3)
-        class_mask_target = (target_tensor[:,:,4]==1) | (target_tensor[:,:,9]==1)
-
-        #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
-        pred_tensor_gamma = pred_tensor[class_mask_target]
-        pred_tensor_gamma = pred_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-        #class_mask_target tensor is used to identify the gamma boxes in target_tensor
-        target_tensor_gamma = target_tensor[class_mask_target]
-        target_tensor_gamma = target_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-        #Finds the class label
-        target = torch.argmax(target_tensor_gamma, dim=1) #[n_objects,1]
-        output = pred_tensor_gamma #[n_objects,C]
-
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
-
-        return acc1, acc5
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res'''
 
 def compute_average_precision(recall, precision):
     """ Compute AP for one class.
@@ -414,7 +356,7 @@ def compute_average_precision(recall, precision):
 
     return ap
        
-def evaluate(preds,targets,class_names,threshold=0.5): #original threshold 0.5
+def evaluate(preds,targets,class_names,threshold=0.5):
     
     """ Compute mAP metric.
     Args:
@@ -507,361 +449,70 @@ def evaluate(preds,targets,class_names,threshold=0.5): #original threshold 0.5
     print('---mAP {}---'.format(np.mean(aps)))
     return aps
     #return aps_dict
-
-def visualize(image,target_boxes,predicted_boxes,writer,n):
-
-    red = (255,0,0)
-    green = (0,255,0)
-    thickness = 2
-
-    for box in target_boxes:
-        x1,y1,x2,y2 = box
-        pt1 = (x1,y1)
-        pt2 = (x2,y2)
-        image = cv2.rectangle(image,pt1,pt2,red,thickness)
-    
-    if len(predicted_boxes)>0:
-        for box in predicted_boxes:
-            x1y1, x2y2 = box
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-            pt1 = (x1,y1)
-            pt2 = (x2,y2)
-            image = cv2.rectangle(image,pt1,pt2,green,thickness)
-
-    to_tensor = transforms.ToTensor()
-    image = to_tensor(image)
-    grid = make_grid(image)
-    writer.add_image('train_image', grid, n)
-
-
-    return None
-
-def compute_iou(boxA,boxB,epsilon=1e-5):
-
-    '''
-    boxA/B: torch.tensor([x1,y1,x2,y2])
-    '''
-
-    #boxA = boxA.numpy()
-    #boxB = boxB.numpy()
-
-    #Intersection coordinates
-    x1 = max(boxA[0],boxB[0])
-    y1 = max(boxA[1],boxB[1])
-    x2 = min(boxA[2],boxB[2])
-    y2 = min(boxA[3],boxB[3])
-
-    #Intersection area
-    w = (x2-x1)
-    h = (y2-y1)
-
-    #No overlap
-    if (w<0) or (h<0):
-        return 0.0
-    
-    intersection_area = w * h
-
-    #Union
-    area_boxa = (boxA[2]-boxA[0]) * (boxA[3]-boxA[1])
-    area_boxb = (boxB[2]-boxB[0]) * (boxB[3]-boxB[1])
-    area_union = area_boxa + area_boxb - intersection_area
-
-    iou = intersection_area / (area_union + epsilon)
-
-    return iou
-
-'''def acc_test(gt_boxes,gt_classnames,pd_boxes,pd_classnames):
-
-    accu = 0
-    n = 0
-
-    threshold = 0.7
-
-    if len(pd_boxes) == 0:
-        print('No boxes detected - from assign')
-        return (0,1)
-    
-    for i,gtb in enumerate(gt_boxes):
-        for j,pdb in enumerate(pd_boxes):
-            x1y1, x2y2 = pdb
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-            pbox = [x1,y1,x2,y2]
-            #Change assignment to max iou
-            if compute_iou(gtb,pbox) > threshold:
-                if gt_classnames[i]==pd_classnames[j]:
-                    accu +=1
-        n+=1
-    
-    return (accu,n)'''
-
-def assign_uids(gt_boxes,uids,pd_boxes,embeddings,ed):
-
-    '''
-    gt_boxes: list([x1,y1,x2,y2])
-    pd_boxes: for box in predicted_boxes:
-            x1y1, x2y2 = box
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-    uids = list(ints)
-    '''
-    threshold = 0.7
-
-    if len(pd_boxes) == 0:
-        print('No boxes detected - from assign')
-        return
-
-    #Uids are assigned to the predicted box with iou above threshold #T1 -0.62 T5-0.73
-    for i,gtb in enumerate(gt_boxes):
-        for j,pdb in enumerate(pd_boxes):
-            x1y1, x2y2 = pdb
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-            pbox = [x1,y1,x2,y2]
-            #Change assignment to max iou
-            if compute_iou(gtb,pbox) > threshold:
-                emb = embeddings[j].view(1,-1).numpy()
-                uid = np.array(uids[i]).reshape(-1)
-                print('uid',uid)
-                print('embeddings',emb.shape,uid.shape)
-                print('embedding dtype',emb.dtype,uid.dtype)
-                ed.addIndex(emb,uid)
-                print('embedding added')
-
-    #Uids are assigned to the box with max iou and above threshold # T1-0.28 T5-0.73
-    '''for i,gtb in enumerate(gt_boxes):
-        max_iou = 0
-        max_embedding_index = 0
-        #max_box = 0
-        for j,pdb in enumerate(pd_boxes):
-            x1y1, x2y2 = pdb
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-            pbox = [x1,y1,x2,y2]
-
-            iou = compute_iou(gtb,pbox)
-            print('iou',iou)
-            if (iou > threshold) and (iou > max_iou):
-                max_iou=iou
-                max_embedding_index=j
-                #max_box=pbox
-
-        emb = embeddings[max_embedding_index].view(1,-1).numpy()
-        uid = np.array(uids[i]).reshape(-1)
-        ed.addIndex(emb,uid)'''
-
-    #Uids are assigned to the box with max iou #T1-0.46 t5-0.84
-    '''for i,gtb in enumerate(gt_boxes):
-        #max_iou = 0
-        embedding_index = []
-
-        for j,pdb in enumerate(pd_boxes):
-            x1y1, x2y2 = pdb
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-            pbox = [x1,y1,x2,y2]
-
-            iou = compute_iou(gtb,pbox)
-            embedding_index.append(iou)
         
-        embedding_index = np.array(embedding_index)
-        max_embedding_index = np.argmax(embedding_index)
-        emb = embeddings[max_embedding_index].view(1,-1).numpy()
-        uid = np.array(uids[i]).reshape(-1)
-        ed.addIndex(emb,uid)'''
-
-
-    
-    return 
-
-def objects_in_tensor(target_tensor):
-
-    class_mask_target = (target_tensor[:,:,:,4]==1) & (target_tensor[:,:,:,9]==1)
-    target_tensor_objects = target_tensor[class_mask_target]
-   
-    return target_tensor_objects.size(0)   
-        
-def new_validate(val_loader, detector, ed,writer):
-
-    '''
-        preds: (dict) {class_name_1: [[filename, prob, x1, y1, x2, y2], ...], class_name_2: [[], ...], ...}.
-        targets: (dict) {(filename, class_name): [[x1, y1, x2, y2], ...], ...}.
-    '''
+def new_validate(val_loader, detector):
 
 
     #Switch to evaluate mode
     #model.eval()
     #locEm = locEmDetector(model_path, gpu_id=gpu_id, conf_thresh=-1.0, prob_thresh=-1.0, nms_thresh=0.45)
 
-    '''preds: (dict) {class_name_1: [[filename, prob, x1, y1, x2, y2], ...], class_name_2: [[], ...], ...}.
-        targets: (dict) {(filename, class_name): [[x1, y1, x2, y2], ...], ...}.'''
-
     targets_ev = defaultdict(list)
     preds_ev = defaultdict(list)
 
-    map_vid = pd.read_pickle("../data/map_vid.pkl")
+    map_vid = pd.read_pickle("../../data/map_vid.pkl")
     map_cat = map_vid.to_dict()['category_name']
     class_dict = {map_cat[i] for i in map_cat}
 
     accurate_class_predictions = 0
     total_predictions = 0
-    same_len_buffer = 0
-    no_pred = 0
-    n=0
-
-    #accuracy = 0
-    #n_objects = 0 
-
-    correct_samples_ac1 = 0
-    correct_samples_ac5 = 0
-    objects_target = 0
-
-    print('Len of val_loader',len(val_loader))
 
     with torch.no_grad():
-        for i, (image,bbox,classname,filename, uids,class_ids,target_tensor) in enumerate(val_loader):
+        for i, (image,bbox,classname,filename) in enumerate(val_loader):
             '''
                 images = tensor(1,3,224,224)
                 target = tensor(idx) #idx of dval
             '''
-        
-            ''' print('image',image.shape)
-            print('bbox',bbox)
-            print('classname',classname)
-            print('filename',filename)
-            
-            
-            print("TYPES")
-
-            print('image',type(image))
-            print('bbox',type(bbox[0]))
-            print('classname',type(classname[0]))
-            print('filename',type(filename))'''
-            
             for b in range(len(bbox)):
 
                 x1,y1,x2,y2 = bbox[b]
-                targets_ev[(filename,classname[b])].append([x1,y1,x2,y2])
+                targets_ev[(filename[b],classname[b])].append([x1,y1,x2,y2])
 
-            '''print('classname_t',classname)
-            print('bbox_t',bbox)
-            print('filename',filename)
-            '''
             #preds_ev[class_name].append([sample.file, 0.99, x1, y1, x2, y2])
-            boxes, class_names, probs, embeddings_detected, pred_tensor = detector.detect(image)
+            boxes, class_names, probs, embeddings_detected = detector.detect(image)
             '''print('TESTING OUTPUT vs TARGET')
             print(class_names,boxes)
             print('------------Target below-------')
             print(classname,[x1,y1,x2,y2])
             sys.exit(0)'''
-            '''print('boxes',len(boxes))
-            print('uids',uids)
-            print('cnames',len(class_names))
-            print('embedd-det',len(embeddings_detected))
-            sys.exit(0)'''
-
-            if not isinstance(pred_tensor,list):
-                
-                res = class_decoder(pred_tensor,target_tensor,accuracy)
-                #print('res',type(res),res)
-                ac1_res,ac5_res =res
-                #print('correct',type(correct),correct)
-                #print('nobjs',type(nobjs),nobjs)
-                correct_samples_ac1+=ac1_res[0]
-                correct_samples_ac5+=ac5_res[0]
-                objects_target+=ac1_res[1]
-            else:
-                images_noobjs = objects_in_tensor(target_tensor)
-                objects_target+=images_noobjs
-
-
-            '''a1,a5 = class_decoder(pred_tensor,encoded_target,accuracy)
-            acc1+=a1/100.0
-            acc5+=a5/100.0'''
-
-            '''ac,no = acc_test(bbox,classname,boxes,class_names)
-            accuracy+=ac
-            n_objects+=n_objects'''
-
-            '''print("Detected")
-            print('boxes',boxes)
-            print('class_names',class_names)
-            print('probs',probs)
-            print('embeddings_detected size',len(embeddings_detected))
-            sys.exit(0)'''
-
-            '''print('bbox',bbox)
-            print('len bbox',len(bbox))
-            print('boxes',boxes)'''
-            
-            #Assigning uids and saving embeddings to ed
-            '''print('uids',type(uids),len(uids))
-            print('class_id',type(class_ids),len(class_ids))
-            sys.exit(0)'''
-
-            assign_uids(bbox,class_ids,boxes,embeddings_detected,ed)
-            #print('Finished assiging ids')
-
-            '''if len(embeddings_detected) == len(uids):
-                same_len_buffer+=1'''
-
-            if len(boxes) == len(bbox):
-                same_len_buffer+=1
-
-            if len(boxes)==0:
-                no_pred+=1
-                
-
             total_predictions+=1
-            if len(class_names) > 0 and set(classname) == set(class_names): #set is not an accurate measure needs to be changed
+            if len(class_names) > 0 and class_names[0]==classname:
                 accurate_class_predictions+=1
-            
-            ''' print('class_names',class_names)
-            print('boxes',boxes)
-            sys.exit(0)'''
-            if True:
-                
-                visualize(image,bbox,boxes,writer,i)
-                n+=1
 
-            #sys.exit(0)
-
-            
-            for box, classname_p, prob in zip(boxes, class_names, probs):
+            for box, classname, prob in zip(boxes, class_names, probs):
                 x1y1, x2y2 = box
                 x1, y1 = int(x1y1[0]), int(x1y1[1])
                 x2, y2 = int(x2y2[0]), int(x2y2[1])
-                preds_ev[classname_p].append([filename, prob, x1, y1, x2, y2])
+                preds_ev[classname].append([filename, prob, x1, y1, x2, y2])
 
     print('ACCURACY CLASS',(accurate_class_predictions*100.0)/total_predictions)
     print('Evaluate the detection result...')
-    print('same_len_buffer', (same_len_buffer*100.0)/total_predictions)
-    print('no_pred',(no_pred*100.0)/total_predictions)
-    print('total TARGETS_ev len',len(targets_ev))
-
-    print('Object based accuracy - Top1',(correct_samples_ac1*100.0)/objects_target)
-    print('Object based accuracy - Top1',(correct_samples_ac5*100.0)/objects_target)
-
-    #print('IoU based accuracy',(accuracy*100.0)/n_objects)
-    #print('acc1,acc5',acc1,acc5)
-    
 
     aps = evaluate(preds_ev, targets_ev, class_names=list(class_dict))
 
     return aps
 
-'''def new_new_validate(val_loader, detector, mode):
+def new_new_validate(val_loader, detector, mode):
 
     if mode=='train':
-        data = pd.read_pickle("../data/metadata_imgnet_vid_train.pkl")
+        data = pd.read_pickle("../../data/metadata_imgnet_vid_train.pkl")
     else:
-        data = pd.read_pickle("../data/metadata_imgnet_vid_val_n2.pkl")
+        data = pd.read_pickle("../../data/metadata_imgnet_vid_val_n2.pkl")
 
     targets_ev = defaultdict(list)
     preds_ev = defaultdict(list)
 
-    map_vid = pd.read_pickle("../data/map_vid.pkl")
+    map_vid = pd.read_pickle("../../data/map_vid.pkl")
     map_cat = map_vid.to_dict()['category_name']
     class_dict = {map_cat[i] for i in map_cat}
 
@@ -869,10 +520,10 @@ def new_validate(val_loader, detector, ed,writer):
 
     with torch.no_grad():
         for i, (image,target) in enumerate(val_loader):
-            
-            #images = tensor(1,3,224,224)
-            #target = tensor(idx) #idx of dval
-            
+            '''
+                images = tensor(1,3,224,224)
+                target = tensor(idx) #idx of dval
+            '''
             targets_ev = defaultdict(list)
             preds_ev = defaultdict(list)
 
@@ -901,7 +552,7 @@ def new_validate(val_loader, detector, ed,writer):
     for class_name in new_aps:
         output_aps[class_name] = sum(new_aps[class_name])
 
-    return output_aps'''
+    return output_aps
 
 
 
@@ -940,49 +591,6 @@ def log_images(images,pred,target):
     
     return figure
 
-def class_decoder(pred_tensor,target_tensor,accuracy):
-
-    '''
-        Args:
-        Out:
-    '''
-    #Alternate class_mask_target
-    class_mask_target = (target_tensor[:,:,:,4]==1) & (target_tensor[:,:,:,9]==1)
-
-    #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
-    pred_tensor_gamma = pred_tensor[class_mask_target]
-    pred_tensor_gamma = pred_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-    #class_mask_target tensor is used to identify the gamma boxes in target_tensor
-    target_tensor_gamma = target_tensor[class_mask_target]
-    target_tensor_gamma = target_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-    #Finds the class label
-    target = torch.argmax(target_tensor_gamma, dim=1)  #[n_objects,1]
-    target = target.view(-1,1)
-    output = pred_tensor_gamma #[n_objects,C]
-
-    correct,batch_size = accuracy(output, target, topk=(1, 5))
-
-
-    return correct,batch_size
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-            #res.append(correct_k.mul_(100.0 / batch_size))
-            res.append((correct_k.item(),batch_size))
-        return res
 
 
 if __name__ == '__main__':

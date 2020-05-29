@@ -116,7 +116,7 @@ X=5
 C=30
 beta=64
 gamma=1
-image_size = 224
+image_size = 448
 
 def rescaleBoundingBox(height,width,rescaled_dim,xmin,ymin,xmax,ymax):
     
@@ -322,15 +322,9 @@ def main_worker(gpu, ngpus_per_node, args):
     #detector = locEmDetector(args.experiment_path,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.30)
 
     writer = SummaryWriter(path_to_disk)
-    ed = EmbedDatabase(d=64)
 
-    detector = locEmDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
-    aps = new_validate(val_loader, detector, ed,writer)
-
-    topk1,topk5 = ed.idAccuracy()
-
-    print('TOPK1:   ',topk1)
-    print('TOPK5:   ',topk5)
+    detector = locEmDetector(model,conf_thresh=0.2, prob_thresh=0.2, nms_thresh=0.60,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
+    aps = new_validate(train_loader, detector, ed,writer)
 
     '''print('Mean APS',np.mean(aps))
 
@@ -348,48 +342,6 @@ def main_worker(gpu, ngpus_per_node, args):
 
     return
 
-'''def class_decoder(pred_tensor,target_tensor,accuracy):
-
-        if len(pred_tensor)==0:
-            return 0,0
-        #S,B,C,X = self.S,self.B,self.C,self.X
-
-        #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
-        #gamma should be at 40?
-        #class_mask_target = (target_tensor[:,:,:,B*X+C]==1) | (target_tensor[:,:,:,B*X+C]==2) | (target_tensor[:,:,:,B*X+C]==3)
-        class_mask_target = (target_tensor[:,:,4]==1) | (target_tensor[:,:,9]==1)
-
-        #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
-        pred_tensor_gamma = pred_tensor[class_mask_target]
-        pred_tensor_gamma = pred_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-        #class_mask_target tensor is used to identify the gamma boxes in target_tensor
-        target_tensor_gamma = target_tensor[class_mask_target]
-        target_tensor_gamma = target_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-        #Finds the class label
-        target = torch.argmax(target_tensor_gamma, dim=1) #[n_objects,1]
-        output = pred_tensor_gamma #[n_objects,C]
-
-        acc1, acc5 = accuracy(output, target, topk=(1, 5))
-
-        return acc1, acc5
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-            res.append(correct_k.mul_(100.0 / batch_size))
-        return res'''
 
 def compute_average_precision(recall, precision):
     """ Compute AP for one class.
@@ -536,151 +488,6 @@ def visualize(image,target_boxes,predicted_boxes,writer,n):
 
 
     return None
-
-def compute_iou(boxA,boxB,epsilon=1e-5):
-
-    '''
-    boxA/B: torch.tensor([x1,y1,x2,y2])
-    '''
-
-    #boxA = boxA.numpy()
-    #boxB = boxB.numpy()
-
-    #Intersection coordinates
-    x1 = max(boxA[0],boxB[0])
-    y1 = max(boxA[1],boxB[1])
-    x2 = min(boxA[2],boxB[2])
-    y2 = min(boxA[3],boxB[3])
-
-    #Intersection area
-    w = (x2-x1)
-    h = (y2-y1)
-
-    #No overlap
-    if (w<0) or (h<0):
-        return 0.0
-    
-    intersection_area = w * h
-
-    #Union
-    area_boxa = (boxA[2]-boxA[0]) * (boxA[3]-boxA[1])
-    area_boxb = (boxB[2]-boxB[0]) * (boxB[3]-boxB[1])
-    area_union = area_boxa + area_boxb - intersection_area
-
-    iou = intersection_area / (area_union + epsilon)
-
-    return iou
-
-'''def acc_test(gt_boxes,gt_classnames,pd_boxes,pd_classnames):
-
-    accu = 0
-    n = 0
-
-    threshold = 0.7
-
-    if len(pd_boxes) == 0:
-        print('No boxes detected - from assign')
-        return (0,1)
-    
-    for i,gtb in enumerate(gt_boxes):
-        for j,pdb in enumerate(pd_boxes):
-            x1y1, x2y2 = pdb
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-            pbox = [x1,y1,x2,y2]
-            #Change assignment to max iou
-            if compute_iou(gtb,pbox) > threshold:
-                if gt_classnames[i]==pd_classnames[j]:
-                    accu +=1
-        n+=1
-    
-    return (accu,n)'''
-
-def assign_uids(gt_boxes,uids,pd_boxes,embeddings,ed):
-
-    '''
-    gt_boxes: list([x1,y1,x2,y2])
-    pd_boxes: for box in predicted_boxes:
-            x1y1, x2y2 = box
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-    uids = list(ints)
-    '''
-    threshold = 0.7
-
-    if len(pd_boxes) == 0:
-        print('No boxes detected - from assign')
-        return
-
-    #Uids are assigned to the predicted box with iou above threshold #T1 -0.62 T5-0.73
-    for i,gtb in enumerate(gt_boxes):
-        for j,pdb in enumerate(pd_boxes):
-            x1y1, x2y2 = pdb
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-            pbox = [x1,y1,x2,y2]
-            #Change assignment to max iou
-            if compute_iou(gtb,pbox) > threshold:
-                emb = embeddings[j].view(1,-1).numpy()
-                uid = np.array(uids[i]).reshape(-1)
-                print('uid',uid)
-                print('embeddings',emb.shape,uid.shape)
-                print('embedding dtype',emb.dtype,uid.dtype)
-                ed.addIndex(emb,uid)
-                print('embedding added')
-
-    #Uids are assigned to the box with max iou and above threshold # T1-0.28 T5-0.73
-    '''for i,gtb in enumerate(gt_boxes):
-        max_iou = 0
-        max_embedding_index = 0
-        #max_box = 0
-        for j,pdb in enumerate(pd_boxes):
-            x1y1, x2y2 = pdb
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-            pbox = [x1,y1,x2,y2]
-
-            iou = compute_iou(gtb,pbox)
-            print('iou',iou)
-            if (iou > threshold) and (iou > max_iou):
-                max_iou=iou
-                max_embedding_index=j
-                #max_box=pbox
-
-        emb = embeddings[max_embedding_index].view(1,-1).numpy()
-        uid = np.array(uids[i]).reshape(-1)
-        ed.addIndex(emb,uid)'''
-
-    #Uids are assigned to the box with max iou #T1-0.46 t5-0.84
-    '''for i,gtb in enumerate(gt_boxes):
-        #max_iou = 0
-        embedding_index = []
-
-        for j,pdb in enumerate(pd_boxes):
-            x1y1, x2y2 = pdb
-            x1, y1 = int(x1y1[0]), int(x1y1[1])
-            x2, y2 = int(x2y2[0]), int(x2y2[1])
-            pbox = [x1,y1,x2,y2]
-
-            iou = compute_iou(gtb,pbox)
-            embedding_index.append(iou)
-        
-        embedding_index = np.array(embedding_index)
-        max_embedding_index = np.argmax(embedding_index)
-        emb = embeddings[max_embedding_index].view(1,-1).numpy()
-        uid = np.array(uids[i]).reshape(-1)
-        ed.addIndex(emb,uid)'''
-
-
-    
-    return 
-
-def objects_in_tensor(target_tensor):
-
-    class_mask_target = (target_tensor[:,:,:,4]==1) & (target_tensor[:,:,:,9]==1)
-    target_tensor_objects = target_tensor[class_mask_target]
-   
-    return target_tensor_objects.size(0)   
         
 def new_validate(val_loader, detector, ed,writer):
 
@@ -709,34 +516,26 @@ def new_validate(val_loader, detector, ed,writer):
     same_len_buffer = 0
     no_pred = 0
     n=0
-
-    #accuracy = 0
-    #n_objects = 0 
-
-    correct_samples_ac1 = 0
-    correct_samples_ac5 = 0
-    objects_target = 0
-
     print('Len of val_loader',len(val_loader))
 
     with torch.no_grad():
-        for i, (image,bbox,classname,filename, uids,class_ids,target_tensor) in enumerate(val_loader):
+        for i, (image,bbox,classname,filename, uids) in enumerate(val_loader):
             '''
                 images = tensor(1,3,224,224)
                 target = tensor(idx) #idx of dval
             '''
         
-            ''' print('image',image.shape)
+            '''print('image',image.shape)
             print('bbox',bbox)
             print('classname',classname)
-            print('filename',filename)
+            print('filename',filename)'''
             
-            
+            '''
             print("TYPES")
 
             print('image',type(image))
-            print('bbox',type(bbox[0]))
-            print('classname',type(classname[0]))
+            print('bbox',type(bbox))
+            print('classname',type(classname))
             print('filename',type(filename))'''
             
             for b in range(len(bbox)):
@@ -749,7 +548,7 @@ def new_validate(val_loader, detector, ed,writer):
             print('filename',filename)
             '''
             #preds_ev[class_name].append([sample.file, 0.99, x1, y1, x2, y2])
-            boxes, class_names, probs, embeddings_detected, pred_tensor = detector.detect(image)
+            boxes, class_names, probs, embeddings_detected = detector.detect(image)
             '''print('TESTING OUTPUT vs TARGET')
             print(class_names,boxes)
             print('------------Target below-------')
@@ -761,29 +560,6 @@ def new_validate(val_loader, detector, ed,writer):
             print('embedd-det',len(embeddings_detected))
             sys.exit(0)'''
 
-            if not isinstance(pred_tensor,list):
-                
-                res = class_decoder(pred_tensor,target_tensor,accuracy)
-                #print('res',type(res),res)
-                ac1_res,ac5_res =res
-                #print('correct',type(correct),correct)
-                #print('nobjs',type(nobjs),nobjs)
-                correct_samples_ac1+=ac1_res[0]
-                correct_samples_ac5+=ac5_res[0]
-                objects_target+=ac1_res[1]
-            else:
-                images_noobjs = objects_in_tensor(target_tensor)
-                objects_target+=images_noobjs
-
-
-            '''a1,a5 = class_decoder(pred_tensor,encoded_target,accuracy)
-            acc1+=a1/100.0
-            acc5+=a5/100.0'''
-
-            '''ac,no = acc_test(bbox,classname,boxes,class_names)
-            accuracy+=ac
-            n_objects+=n_objects'''
-
             '''print("Detected")
             print('boxes',boxes)
             print('class_names',class_names)
@@ -791,17 +567,11 @@ def new_validate(val_loader, detector, ed,writer):
             print('embeddings_detected size',len(embeddings_detected))
             sys.exit(0)'''
 
-            '''print('bbox',bbox)
+            print('bbox',bbox)
             print('len bbox',len(bbox))
-            print('boxes',boxes)'''
+            print('boxes',boxes)
             
-            #Assigning uids and saving embeddings to ed
-            '''print('uids',type(uids),len(uids))
-            print('class_id',type(class_ids),len(class_ids))
-            sys.exit(0)'''
-
-            assign_uids(bbox,class_ids,boxes,embeddings_detected,ed)
-            #print('Finished assiging ids')
+            
 
             '''if len(embeddings_detected) == len(uids):
                 same_len_buffer+=1'''
@@ -839,12 +609,6 @@ def new_validate(val_loader, detector, ed,writer):
     print('same_len_buffer', (same_len_buffer*100.0)/total_predictions)
     print('no_pred',(no_pred*100.0)/total_predictions)
     print('total TARGETS_ev len',len(targets_ev))
-
-    print('Object based accuracy - Top1',(correct_samples_ac1*100.0)/objects_target)
-    print('Object based accuracy - Top1',(correct_samples_ac5*100.0)/objects_target)
-
-    #print('IoU based accuracy',(accuracy*100.0)/n_objects)
-    #print('acc1,acc5',acc1,acc5)
     
 
     aps = evaluate(preds_ev, targets_ev, class_names=list(class_dict))
@@ -940,49 +704,6 @@ def log_images(images,pred,target):
     
     return figure
 
-def class_decoder(pred_tensor,target_tensor,accuracy):
-
-    '''
-        Args:
-        Out:
-    '''
-    #Alternate class_mask_target
-    class_mask_target = (target_tensor[:,:,:,4]==1) & (target_tensor[:,:,:,9]==1)
-
-    #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
-    pred_tensor_gamma = pred_tensor[class_mask_target]
-    pred_tensor_gamma = pred_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-    #class_mask_target tensor is used to identify the gamma boxes in target_tensor
-    target_tensor_gamma = target_tensor[class_mask_target]
-    target_tensor_gamma = target_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
-
-    #Finds the class label
-    target = torch.argmax(target_tensor_gamma, dim=1)  #[n_objects,1]
-    target = target.view(-1,1)
-    output = pred_tensor_gamma #[n_objects,C]
-
-    correct,batch_size = accuracy(output, target, topk=(1, 5))
-
-
-    return correct,batch_size
-
-def accuracy(output, target, topk=(1,)):
-    """Computes the accuracy over the k top predictions for the specified values of k"""
-    with torch.no_grad():
-        maxk = max(topk)
-        batch_size = target.size(0)
-
-        _, pred = output.topk(maxk, 1, True, True)
-        pred = pred.t()
-        correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-        res = []
-        for k in topk:
-            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
-            #res.append(correct_k.mul_(100.0 / batch_size))
-            res.append((correct_k.item(),batch_size))
-        return res
 
 
 if __name__ == '__main__':

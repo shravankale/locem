@@ -144,6 +144,7 @@ class locEmDetector():
         with torch.no_grad():
             pred_tensor = self.loceEm(img)
         pred_tensor = pred_tensor.cpu().data
+        pred_tensor_output = pred_tensor.clone().detach()
         pred_tensor = pred_tensor.squeeze(0) # squeeze batch dimension because we are getting detection only for one image
 
         boxes_normalized_all, class_labels_all, confidences_all, class_scores_all, embeddings_all = self.decode(pred_tensor)
@@ -152,7 +153,8 @@ class locEmDetector():
         #print('detect(), boxes_normalized_all',boxes_normalized_all)
 
         if boxes_normalized_all.size(0) == 0:
-            return [], [], [], [] # if no box found, return empty lists.
+            
+            return [], [], [], [],[] # if no box found, return empty lists.
         
         # Apply non maximum supression for boxes of each class.
         boxes_normalized, class_labels, probs, embeds = [], [], [], []
@@ -202,7 +204,7 @@ class locEmDetector():
 
             embeddings_detected.append(embed)
 
-        return boxes_detected, class_names_detected, probs_detected, embeddings_detected
+        return boxes_detected, class_names_detected, probs_detected, embeddings_detected, pred_tensor_output
 
     
     def nms(self, boxes, scores):

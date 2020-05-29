@@ -248,6 +248,9 @@ class locemLoss(nn.Module):
         loss_class = F.mse_loss(class_pred, class_target, reduction='sum')
         #loss_class = F.nll_loss(class_pred, class_target, reduction='sum')
 
+        #loss_class = 0.7 * loss_class
+        #loss_triplet = 0.3 * loss_triplet
+
         # Total loss
         #CHEK! Should triplet_loss be divided by the number of samples?
         loss = self.lambda_coord * (loss_xy + loss_wh) + loss_obj + self.lambda_noobj * loss_noobj + loss_class 

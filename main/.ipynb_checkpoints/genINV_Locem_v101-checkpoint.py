@@ -10,46 +10,44 @@ import xml.etree.ElementTree as ET
 from torch.utils import data
 from torchvision import transforms
 from PIL import Image
-from util.augmentations import Augment
+from augmentations import Augment
 
 class ImageNetVID(data.Dataset):
 
 
-    def __init__(self,root_datasets,path_to_dataset,split,image_size,S,B,C,X,gamma,transform=None):
+    def __init__(self,root_datasets,path_to_dataset,split,transform=None):
         
         print('USING v101 of generator')
     
         self.transform = transform
         self.root_datasets = root_datasets
-        #self.root_ImageNetVidsDevkit = self.root_datasets+"ImageNetVids/imageNetVidsDevkit.data/"
-        #self.root_ImageNetVids = self.root_datasets+"ImageNetVids/imageNetVids.data/"
-        #self.root_ImageNetVids = ''
+        self.root_ImageNetVidsDevkit = self.root_datasets+"ImageNetVids/imageNetVidsDevkit.data/"
+        self.root_ImageNetVids = self.root_datasets+"ImageNetVids/imageNetVids.data/"
         self.split_mode = split
         self.aug = Augment()
 
 
         if self.split_mode == 'train':
-            self.path_to_frames=self.root_datasets+"ILSVRC2015/Data/VID/train/"
-            self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_train.pkl')
+            self.path_to_frames=self.root_ImageNetVids+"Data/VID/train/"
+            self.all_data = pd.read_pickle('../../data/metadata_imgnet_vid_train.pkl')
             
         elif self.split_mode == 'val':
-            self.path_to_frames= self.root_datasets+"ILSVRC2015/Data/VID/val/"
-            self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_val.pkl')
+            self.path_to_frames=self.root_ImageNetVids+"Data/VID/val/"
+            self.all_data = pd.read_pickle('../../data/metadata_imgnet_vid_val.pkl')
            
         else:
             raise ValueError('Split has to be train or val')
 
         self.data_set = pd.read_pickle(path_to_dataset)
         self.unique_keys = self.getKeys(pd.DataFrame(self.data_set))
-        #self.data_set = self.data_set[:10]
 
-        self.network_dim = image_size
+        self.network_dim = 224
         mean_rgb = [122.67891434, 116.66876762, 104.00698793]
         self.mean = np.array(mean_rgb, dtype=np.float32)
 
         self.to_tensor = transforms.ToTensor()
 
-        self.S,self.B,self.C,self.X,self.gamma = S,B,C,X,gamma
+        self.S,self.B,self.C,self.X,self.beta,self.gamma = 7,2,30,5,64,1
 
     def encodeTarget_locem(self,target_bbox,target_class,target_id):
         '''
@@ -61,11 +59,11 @@ class ImageNetVID(data.Dataset):
         '''
         #Figure out label encoding
 
-        S = self.S
-        B = self.B
-        X = self.X
-        C = self.C
-        gamma = self.gamma
+        S = 7
+        B = 2
+        X = 5
+        C = 30
+        gamma = 1
 
         #if target_class.size(0) > 1:
             #raise ValueError('Need to adjust for target_class > 1')
@@ -79,7 +77,7 @@ class ImageNetVID(data.Dataset):
         #print('pre-norm',boxes)
         
 
-        #image_height,image_width = 224,224
+        image_height,image_width = 224,224
         #boxes /= torch.Tensor([[image_width, image_height, image_width, image_height]]).expand_as(boxes) # normalize (x1, y1, x2, y2) w.r.t. image width/height.
         #print('post-norm',boxes)
         #Figure out label encoding
@@ -102,8 +100,6 @@ class ImageNetVID(data.Dataset):
             xy_normalized = (xy - x0y0) / cell_size # x & y of the box on the cell, normalized from 0.0 to 1.0.
 
             for k in range(B):
-                #if target[j, i, s+4    ] == 1.0:
-                   #continue 
                 s = 5 * k
                 target[j, i, s  :s+2] = xy_normalized
                 target[j, i, s+2:s+4] = wh
@@ -126,14 +122,11 @@ class ImageNetVID(data.Dataset):
             Out:
         '''
 
-        S,B,C,X,gamma = self.S,self.B,self.C,self.X,self.gamma
+        S,B,C,X,beta,gamma = self.S,self.B,self.C,self.X,self.beta,self.gamma
 
         #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
         #gamma should be at 40?
-        #For all triplets only
-        #class_mask_target = (target_tensor[:,:,:,B*X+C]==1) | (target_tensor[:,:,:,B*X+C]==2) | (target_tensor[:,:,:,B*X+C]==3)
-        #For all objects
-        class_mask_target = (target_tensor[:,:,:,4]==1) | (target_tensor[:,:,:,9]==1)
+        class_mask_target = (target_tensor[:,:,:,B*X+C]==1) | (target_tensor[:,:,:,B*X+C]==2) | (target_tensor[:,:,:,B*X+C]==3)
 
         #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
         pred_tensor_gamma = pred_tensor[class_mask_target]
@@ -227,7 +220,6 @@ class ImageNetVID(data.Dataset):
         #Positive
         positive_candidate = self.data_set[
             (self.data_set.cat_code==sample.cat_code)& (self.data_set.snip_id==sample.snip_id) & (self.data_set.trackid==sample.trackid)]
-            #CHECK! You might not need the same snip_id, you can just do same cat_code and same trackid --
         #dropping anchor or sample from positive candidates
         if len(positive_candidate) >= 2:
             positive_candidate = positive_candidate.drop(idx) #idx == sample.index
@@ -250,7 +242,7 @@ class ImageNetVID(data.Dataset):
         #Negative
         #WE WONT KEEP THE SNIP_ID==sample.SNIP_ID BECAUSE THE SAME IMAGE WITH 2 DIFFERENT OBJECTS COULD BE CONSIDERED NEGATIVE
         negative_candidate = self.data_set[
-            (self.data_set.cat_code==sample.cat_code)& (self.data_set.snip_id!=sample.snip_id) &(self.data_set.trackid==sample.trackid)]
+            (self.data_set.cat_code==sample.cat_code)& (self.data_set.snip_id!=sample.snip_id)]
     
         if len(negative_candidate) == 0:
             negative_candidate = self.data_set[(self.data_set.cat_code!=sample.cat_code)& (self.data_set.snip_id!=sample.snip_id)]
@@ -273,25 +265,27 @@ class ImageNetVID(data.Dataset):
         #Augmentations
        
 
-        if self.split_mode == 'off':
+        if self.split_mode == 'train':
             
+
             #Box Augmentations
-            sample_img, sample_bbox = self.aug.random_flip(sample_img, sample_bbox)
-            positive_img, positive_bbox = self.aug.random_flip(positive_img, positive_bbox)
-            negative_img, negative_bbox = self.aug.random_flip(negative_img, negative_bbox)
+            sample_img, sample_bbox = self.aug.random_flip(sample_img, torch.Tensor(sample_bbox))
+            positive_img, positive_bbox = self.aug.random_flip(positive_img, torch.Tensor(positive_bbox))
+            negative_img, negative_bbox = self.aug.random_flip(negative_img, torch.Tensor(negative_bbox))
             
             sample_img, sample_bbox = self.aug.random_scale(sample_img, sample_bbox)
             positive_img, positive_bbox = self.aug.random_scale(positive_img, positive_bbox)
             negative_img, negative_bbox = self.aug.random_scale(negative_img, negative_bbox)
             
+
             #Non-box augmentations
             sample_img = self.aug.random_blur(sample_img)
             positive_img = self.aug.random_blur(positive_img)
             negative_img = self.aug.random_blur(negative_img)
 
-            '''sample_img = self.aug.random_brightness(sample_img)
+            sample_img = self.aug.random_brightness(sample_img)
             positive_img = self.aug.random_brightness(positive_img)
-            negative_img = self.aug.random_brightness(negative_img)'''
+            negative_img = self.aug.random_brightness(negative_img)
 
             sample_img = self.aug.random_hue(sample_img)
             positive_img = self.aug.random_hue(positive_img)
@@ -305,9 +299,9 @@ class ImageNetVID(data.Dataset):
             positive_img, positive_bbox, positive_class = self.aug.random_shift(positive_img, positive_bbox, positive_class)
             negative_img, negative_bbox, negative_class = self.aug.random_shift(negative_img, negative_bbox, negative_class)
 
-            ''' sample_img, sample_bbox, sample_class = self.aug.random_crop(sample_img, sample_bbox, sample_class)
+            sample_img, sample_bbox, sample_class = self.aug.random_crop(sample_img, sample_bbox, sample_class)
             positive_img, positive_bbox, positive_class = self.aug.random_crop(positive_img, positive_bbox, positive_class)
-            negative_img, negative_bbox, negative_class = self.aug.random_crop(negative_img, negative_bbox, negative_class)'''
+            negative_img, negative_bbox, negative_class = self.aug.random_crop(negative_img, negative_bbox, negative_class)
 
         #Division issue
 
@@ -317,11 +311,11 @@ class ImageNetVID(data.Dataset):
 
         #Normalize Bounding boxes
 
-        sample_bbox = sample_bbox/((torch.tensor([w_sample,h_sample,w_sample,h_sample],dtype=torch.float)).view(1,-1))
+        sample_bbox = sample_bbox/(torch.tensor([w_sample,h_sample,w_sample,h_sample],dtype=torch.float)).view(1,-1)
 
-        positive_bbox = positive_bbox/((torch.tensor([w_positive,h_positive,w_positive,h_positive],dtype=torch.float)).view(1,-1))
+        positive_bbox = positive_bbox/(torch.tensor([w_positive,h_positive,w_positive,h_positive],dtype=torch.float)).view(1,-1)
 
-        negative_bbox = negative_bbox/((torch.tensor([w_negative,h_negative,w_negative,h_negative],dtype=torch.float)).view(1,-1))
+        negative_bbox = negative_bbox/(torch.tensor([w_negative,h_negative,w_negative,h_negative],dtype=torch.float)).view(1,-1)
 
 
         #Encoding Target
@@ -341,16 +335,16 @@ class ImageNetVID(data.Dataset):
         negative_img = cv2.resize(negative_img, dsize=(self.network_dim, self.network_dim), interpolation=cv2.INTER_LINEAR)
 
         #CVTCOLOR
-        #sample_img = cv2.cvtColor(sample_img, cv2.COLOR_BGR2RGB)
-        #positive_img = cv2.cvtColor(positive_img, cv2.COLOR_BGR2RGB)
-        #negative_img = cv2.cvtColor(negative_img, cv2.COLOR_BGR2RGB)
+        sample_img = cv2.cvtColor(sample_img, cv2.COLOR_BGR2RGB)
+        positive_img = cv2.cvtColor(positive_img, cv2.COLOR_BGR2RGB)
+        negative_img = cv2.cvtColor(negative_img, cv2.COLOR_BGR2RGB)
 
         #Image Normalization - # normalize from -1.0 to 1.0.
 
         sample_img = (sample_img - self.mean) / 255.0
         positive_img = (positive_img - self.mean) / 255.0
         negative_img = (negative_img - self.mean) / 255.0
-        
+
         #Image to Tensor
         sample_img = self.to_tensor(sample_img)
         positive_img = self.to_tensor(positive_img)
@@ -360,11 +354,17 @@ class ImageNetVID(data.Dataset):
 
         images = torch.stack([sample_img,positive_img,negative_img],dim=0)
         target = torch.stack([sample_target,positive_target,negative_target], dim=0)
-
         
-        #images = np.stack([sample_img,positive_img,negative_img],axis=0)
-        #target = torch.stack([sample_bbox,positive_bbox,negative_bbox],dim=0)
 
-        #return sample_img,positive_img,negative_img,sample_bbox,positive_bbox,negative_bbox
         return images,target
+
+    def check_box(self, box, width, height):
+        
+        for i in range(box.size(1)):
+            if i % 2 ==0: #x1,x2
+                if box[0][i] > width:
+                    print('Problemo -x',box[0][i])
+            else:
+                if box[0][i] > height:
+                    print('Problemo -y',box[0][i])
             

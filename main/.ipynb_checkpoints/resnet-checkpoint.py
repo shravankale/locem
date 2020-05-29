@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
-#from .utils import load_state_dict_from_url
-from torch.utils.model_zoo import load_url as load_state_dict_from_url
+from .utils import load_state_dict_from_url
 
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
@@ -121,7 +119,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers,S=7,B=2,C=30,X=5,beta=64, num_classes=1000, zero_init_residual=False,
+    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
         super(ResNet, self).__init__()
@@ -131,11 +129,6 @@ class ResNet(nn.Module):
 
         self.inplanes = 64
         self.dilation = 1
-        self.S = S
-        self.B = B
-        self.C = C 
-        self.X = X
-        self.beta = beta 
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
@@ -159,14 +152,8 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         #Custom for locem_multihead
-        #num_classes = 7*7*(2*5+30+64)
-        num_classes = self.S*self.S*(self.X*self.B + self.C + self.beta)
-        #self.l1 = nn.Linear(512 * block.expansion,4096)
-        #self.relu2 = nn.ReLU()
-        self.fc_locem = nn.Linear(2048, num_classes) #2048 in g4
-        self.sigmoid = nn.Sigmoid()
-        
-        
+        num_classes = 7*7*(2*5+30+64)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -223,12 +210,7 @@ class ResNet(nn.Module):
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        #x = self.l1(x)
-        #x = self.relu2(x)
-        x = self.fc_locem(x)
-        x = x.view(-1,self.S,self.S,self.X*self.B+self.C+self.beta)
-        x[:,:,:,:self.X*self.B+self.C]=self.sigmoid(x[:,:,:,:self.X*self.B+self.C])
-        #x[:,:,:,40:]=F.normalize(x[:,:,:,40:],p=2)
+        x = self.fc(x).view(-1, 7, 7, 5 * 2 + 30 + 64)
 
         return x
 
@@ -239,36 +221,9 @@ class ResNet(nn.Module):
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
     model = ResNet(block, layers, **kwargs)
     if pretrained:
-        '''state_dict = load_state_dict_from_url(model_urls[arch],
+        state_dict = load_state_dict_from_url(model_urls[arch],
                                               progress=progress)
-        
-        model.load_state_dict(state_dict)'''
-
-        #Overwriting fetching pretrained weights
-        from torch.utils import model_zoo
-        from collections import OrderedDict
-
-        pretrained_state = model_zoo.load_url(model_urls['resnet50'])
-        model_state = model.state_dict()
-
-        #Testing
-        test = {k:v for k,v in pretrained_state.items()}
-        if not list(test.items())==list(pretrained_state.items()):
-            print('State items did not match')
-            sys.exit(0)
-
-        #Findind common layers between pretrained_state and model_state
-        transfer_states = OrderedDict({k:v for k,v in pretrained_state.items() if k in model_state and v.size() == model_state[k].size() })
-
-        #Updating model_state with transfer_states
-        model_state.update(transfer_states)
-
-        #Loading updated states into model
-        model.load_state_dict(model_state)
-
-        
-        
-
+        model.load_state_dict(state_dict)
     return model
 
 

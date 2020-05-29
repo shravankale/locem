@@ -102,13 +102,13 @@ parser.add_argument('-en','--experiment_name', type=str, help="Name of the exper
 
 
 best_acc1 = 0
-path_to_disk = '/disk/shravank/results/locem/main/run/'
+path_to_disk = '/mnt/data1/shravank/results/locem/main/run/'
 
 S=7
 B=2
 X=5
 C=30
-beta=64
+beta=512
 gamma=1
 image_size = 448
 
@@ -198,9 +198,11 @@ def main():
 
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
 
+    print('args.workers',args.workers)
 
     ngpus_per_node = torch.cuda.device_count()
     if args.multiprocessing_distributed:
+        print('h1')
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
         args.world_size = ngpus_per_node * args.world_size
@@ -208,6 +210,8 @@ def main():
         # main_worker process function
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
     else:
+        #Here
+        
         # Simply call main_worker function
         main_worker(args.gpu, ngpus_per_node, args)
 
@@ -368,7 +372,7 @@ def main_worker(gpu, ngpus_per_node, args):
     #best val dataset has _new
     val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
     #root_datasets = "../../../../datasets/"
-    root_datasets = '/disk/shravank/datasets/'
+    root_datasets = '/mnt/data1/shravank/datasets/'
 
     '''train_dataset = datasets.ImageFolder(
         traindir,
@@ -406,7 +410,8 @@ def main_worker(gpu, ngpus_per_node, args):
         train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)'''
 
-    train_loader = DataLoader(gen_train,batch_size=args.batch_size,num_workers=args.workers,shuffle=False,collate_fn=collate_fn)
+    #train_loader = DataLoader(gen_train,batch_size=args.batch_size,num_workers=args.workers,shuffle=True,collate_fn=collate_fn)
+    train_loader = DataLoader(gen_train,batch_size=args.batch_size,num_workers=args.workers,shuffle=True,collate_fn=collate_fn)
 
 
     '''tl = iter(train_loader)
@@ -426,7 +431,7 @@ def main_worker(gpu, ngpus_per_node, args):
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)'''
 
-    val_loader = DataLoader(gen_val,batch_size=64,collate_fn=collate_fn)
+    val_loader = DataLoader(gen_val,batch_size=args.batch_size,num_workers=args.workers,collate_fn=collate_fn)
     #val_loader = DataLoader(gen_val,batch_size=119/154,,num_workers=11)
 
     writer = SummaryWriter(path_to_disk) 
