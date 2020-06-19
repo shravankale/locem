@@ -35,6 +35,9 @@ class EmbedDatabase():
             query_embeddings = np.shape(n,d)
         '''
 
+        if len(self.query_embeddings) == 0:
+            return 0,0
+
         qe = np.concatenate(self.query_embeddings,axis=0)
         print(qe.shape)
         ids = np.concatenate(self.query_ids,axis=0)
