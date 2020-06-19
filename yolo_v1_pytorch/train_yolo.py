@@ -44,7 +44,7 @@ print('CUDA device_count: {}'.format(torch.cuda.device_count()))
 #checkpoint_path = 'weights/darknet/model_best.pth.tar'
 
 path_to_disk = '/mnt/data1/shravank/results/locem/main/run/'
-experiment_name = 'g4_yolob_e300b64_v1'
+experiment_name = 'g4_yolob_e300b64_v1.1'              #'g4_yolob_e300b64_v1'
 path_to_disk = path_to_disk + experiment_name + '/'
 # Frequency to print/log the results.
 print_freq = 5
@@ -52,7 +52,7 @@ tb_log_freq = 5
 
 #Network Parameteres
 S=7
-B=2
+B=5
 X=5
 C=30
 image_size = 448
@@ -64,6 +64,38 @@ momentum = 0.9
 weight_decay = 1.0e-4
 num_epochs = 300
 batch_size = 64
+
+def class_decoder(self,pred_tensor,target_tensor,accuracy):
+
+    '''
+        Args:
+        Out:
+    '''
+
+    S,B,C,X,gamma = self.S,self.B,self.C,self.X,self.gamma
+
+    #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
+    #gamma should be at 40?
+    #For all triplets only
+    #class_mask_target = (target_tensor[:,:,:,B*X+C]==1) | (target_tensor[:,:,:,B*X+C]==2) | (target_tensor[:,:,:,B*X+C]==3)
+    #For all objects
+    class_mask_target = (target_tensor[:,:,:,4]==1) | (target_tensor[:,:,:,9]==1)
+
+    #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
+    pred_tensor_gamma = pred_tensor[class_mask_target]
+    pred_tensor_gamma = pred_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
+
+    #class_mask_target tensor is used to identify the gamma boxes in target_tensor
+    target_tensor_gamma = target_tensor[class_mask_target]
+    target_tensor_gamma = target_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
+
+    #Finds the class label
+    target = torch.argmax(target_tensor_gamma, dim=1) #[n_objects,1]
+    output = pred_tensor_gamma #[n_objects,C]
+
+    acc1, acc5 = accuracy(output, target, topk=(1, 5))
+
+    return acc1, acc5
 
 # Learning rate scheduling.
 def update_lr(optimizer, epoch, burnin_base, burnin_exp=4.0):
@@ -125,16 +157,16 @@ optimizer = torch.optim.SGD(yolo.parameters(), lr=init_lr, momentum=momentum, we
 train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
 #best val dataset has _new
 val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
-root_datasets = '/mnt/data1/shravank/datasets/'
+root_datasets = '/mnt/data1/shravank/datasets/' 
 
 # Load Pascal-VOC dataset.
 gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X)
-train_loader = DataLoader(gen_train,batch_size=batch_size,num_workers=3,shuffle=True)
+train_loader = DataLoader(gen_train,batch_size=batch_size,num_workers=2,shuffle=True)
 
 gen_val = ImageNetVID(root_datasets,val_dataset,split='val',image_size=image_size,S=S,B=B,C=C,X=X)
 val_loader = DataLoader(gen_val,batch_size=batch_size)
 
-print('Number of training images: ', len(train_dataset))
+#print('Number of training images: ', len(train_dataset))
 
 # Open TensorBoardX summary writer
 #log_dir = datetime.now().strftime('%b%d_%H-%M-%S')
@@ -156,6 +188,7 @@ for epoch in range(num_epochs):
     total_batch = 0
 
     for i, (imgs, targets) in enumerate(train_loader):
+        
         # Update learning rate.
         update_lr(optimizer, epoch, float(i) / float(len(train_loader) - 1))
         lr = get_lr(optimizer)
@@ -167,7 +200,7 @@ for epoch in range(num_epochs):
         imgs, targets = imgs.cuda(), targets.cuda()
 
         # Forward to compute loss.
-        preds = yolo(imgs)
+        preds, _ = yolo(imgs)      
         loss, loss_class, loss_box = criterion(preds, targets)
         loss_this_iter = loss.item()
         total_loss += loss_this_iter * batch_size_this_iter
@@ -209,7 +242,7 @@ for epoch in range(num_epochs):
 
         # Forward to compute validation loss.
         with torch.no_grad():
-            preds = yolo(imgs)
+            preds, _ = yolo(imgs)
         loss, loss_class, loss_box = criterion(preds, targets)
         loss_this_iter = loss.item()
         val_loss += loss_this_iter * batch_size_this_iter

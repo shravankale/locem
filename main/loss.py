@@ -113,6 +113,15 @@ class locemLoss(nn.Module):
         positive_mask = (target_tensor[:,:,:,N] == 2) & (target_tensor[:,:,:,4] > 0)
         negative_mask = (target_tensor[:,:,:,N] == 3) & (target_tensor[:,:,:,4] > 0)
 
+        #The non-triplet mask can contain non-triplet embeddings or background embeddings
+        ##non_triplet_mask = (target_tensor[:,:,:,N] != 1) & (target_tensor[:,:,:,N] != 2) & (target_tensor[:,:,:,N] != 3) #These conditions are enough to include non-triplet objects and/or background embeddings
+        ##non_triplet_pred = pred_tensor[non_triplet_mask]
+        #CHECK! non_triplet_pred might need to be the same size as anchor and positive
+        ##if non_triplet_pred.size(0)!=0:
+            ##non_triplets = non_triplet_pred[:,N:]
+            ##triplet_loss_bgrnd = nn.TripletMarginLoss(margin=1.0,p=2,reduction='mean')
+            ##loss_triplet_bgrnd = triplet_loss_bgrnd(anchor,positive,non_triplets) 
+
 
         #New masking
         anchor_pred = pred_tensor[anchor_mask]

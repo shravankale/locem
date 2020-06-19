@@ -1,9 +1,7 @@
 import pandas as pd
 import numpy as np
-import os, fnmatch, re, cv2, random, sys
+import os, fnmatch, re, cv2, random, pickle
 import torch
-
-sys.path.append('../')
 #import imgaug as ia
 #import imageio
 #get_ipython().run_line_magic('matplotlib', 'inline')
@@ -12,9 +10,7 @@ import xml.etree.ElementTree as ET
 from torch.utils import data
 from torchvision import transforms
 from PIL import Image
-from util.augmentations import Augment
-
-#gitcheck0
+#from augmentations import Augment
 
 '''def xxyy_to_xywh(x0,y0,x1,y1):
     
@@ -32,12 +28,12 @@ def xywh_to_xxyy(xc,yc,width,height):
     y1 = height+y0
     
     return [(x0,y0),(x1,y1)]
-    
+    '''
 
-def cropImage(sample,image,xmax,xmin,ymax,ymin):
+'''def cropImage(sample,image,xmax,xmin,ymax,ymin):
 
     #if not isinstance(image, np.ndarray):
-        #raise ValueError("img is not numpy array -crop",sample)
+            #raise ValueError("img is not numpy array -crop",sample)
     
     #img = image[ymin:ymax,xmin:xmax,:]
     #img = cv2.resize(image,dsize=(224,224), interpolation = cv2.INTER_AREA)
@@ -45,8 +41,8 @@ def cropImage(sample,image,xmax,xmin,ymax,ymin):
     img = image.crop((xmin,ymin,xmax,ymax))
     img = img.resize((224,224))
     
-    return img
-def rescaleBoundingBox(height,width,rescaled_dim,xmin,ymin,xmax,ymax):
+    return img'''
+'''def rescaleBoundingBox(height,width,rescaled_dim,xmin,ymin,xmax,ymax):
     
     #Required CNN input dimensions are generally squares hence just one dimension, rescaled_dim
     scale_x = rescaled_dim/width
@@ -71,8 +67,8 @@ def drawBoundingBox_xxyy(img,x1,y1,x2,y2):
     from PIL import ImageDraw
     draw = ImageDraw.Draw(img)
     draw.rectangle([(x1,y1),(x2,y2)],outline=(255,255,255,0),width=5)
-    return img
-'''
+    return img'''
+
 class ImageNetVID(data.Dataset):
 
 
@@ -85,7 +81,7 @@ class ImageNetVID(data.Dataset):
         #self.root_ImageNetVidsDevkit = self.root_datasets+"ImageNetVids/imageNetVidsDevkit.data/"
         #self.root_ImageNetVids = self.root_datasets+"ImageNetVids/imageNetVids.data/"
         self.split_mode = split
-        self.aug = Augment()
+        #self.aug = Augment()
 
 
         if self.split_mode == 'train':
@@ -94,10 +90,14 @@ class ImageNetVID(data.Dataset):
             
         elif self.split_mode == 'val':
             self.path_to_frames= self.root_datasets+"ILSVRC2015/Data/VID/val/"
-            self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_val_new.pkl')
+            self.all_data = pd.read_pickle('../data/metadata_imgnet_vid_val_new.pkl') #SWITCH TO NEW
+            #self.all_data = pickle.load(open("../data/metadata_imgnet_vid_folderFile_val.pkl","rb"))
            
         else:
             raise ValueError('Split has to be train or val')
+        
+        self.map_vid = pd.read_pickle("../data/map_vid.pkl")
+        self.map_cat = self.map_vid.to_dict()['category_name']
 
         self.data_set = pd.read_pickle(path_to_dataset)
         self.unique_keys = self.getKeys(pd.DataFrame(self.data_set))
@@ -109,26 +109,22 @@ class ImageNetVID(data.Dataset):
 
         self.to_tensor = transforms.ToTensor()
 
-        self.S,self.B,self.C,self.X= S,B,C,X
+        self.S,self.B,self.C,self.X = S,B,C,X
 
     def encodeTarget_locem(self,target_bbox,target_class):
-        '''
-            target_bbox = [xmax,xmin,ymax,ymin] #~~ [x2,x1,y2,y1]
-            target_class = int
-            target_id = int
-            target_output = (S,S,B*X+C+gama)
+    
+            #target_bbox = [xmax,xmin,ymax,ymin] #~~ [x2,x1,y2,y1]
+            #target_class = int
+            #target_id = int
+            #target_output = (S,S,B*X+C+gama)
 
-        '''
+        
         #Figure out label encoding
 
-        S = self.S
-        B = self.B
-        X = self.X
-        C = self.C
-        #gamma = self.gamma
+        S,B,C,X = self.S,self.B,self.C,self.X
 
         #if target_class.size(0) > 1:
-            #raise ValueError('Need to adjust for target_class > 1')
+        #raise ValueError('Need to adjust for target_class > 1')
 
         labels = target_class
 
@@ -163,9 +159,7 @@ class ImageNetVID(data.Dataset):
 
             for k in range(B):
                 s = 5 * k
-                #if target[j,i,s+4]==1.0:
-                    #print('Issue with: ',j,i,s+4)
-                    #sys.exit(0)
+                
                 target[j, i, s  :s+2] = xy_normalized
                 target[j, i, s+2:s+4] = wh
                 target[j, i, s+4    ] = 1.0 #Confidence of the bounding box
@@ -173,16 +167,16 @@ class ImageNetVID(data.Dataset):
             #Setting class label
             target[j, i, B*X + label] = 1.0
 
-            #Setting gamma label for only the first box which is one of the triplets
-            #other boxes will be in a grid with target_id = 0. They won't be picked up while calculating triplet score
-            '''if b==0:
-                target[j, i, B*X + C] = target_id'''
+            #Setting gamma label
+            #target[j, i, B*X + C] = target_id
 
         return target
+    '''
 
-    '''def class_decoder(self,pred_tensor,target_tensor,accuracy):
+    def class_decoder(self,pred_tensor,target_tensor,accuracy):
 
-        S,B,C,X,beta,gamma = self.S,self.B,self.C,self.X,self.beta,self.gamma
+
+        S,B,C,X,gamma = self.S,self.B,self.C,self.X,self.gamma
 
         #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
         #gamma should be at 40?
@@ -232,24 +226,65 @@ class ImageNetVID(data.Dataset):
     def getOtherObjects(self,sample,train_data,all_data):
     
         boxes = []
-        classes = []
+        #filenames = []
+        classnames = []
+        uids = []
+        class_ids = []
+
         
         other_samples = all_data[(all_data.folder==sample.folder)&(all_data.file==sample.file)]
         #If there is only 1 object in image then there is nothing to add
         if len(other_samples)==1:
-            return [],[]
+            return [],[],[],[]
         #Dropping sample from other
         other_samples = other_samples[other_samples.trackid!=sample.trackid]
         
         for idx in other_samples.index:
             row = other_samples.loc[idx]
             boxes.append([row.xmin,row.ymin,row.xmax,row.ymax])
-            classes.append([row.cat_code-1])
+            #filenames.append(row.file)
+            class_ids.append(row.cat_code-1)
+            classnames.append(self.map_cat[row.cat_code-1])
+            uid = self.unique_keys[
+            (self.unique_keys.cat_code==row.cat_code) & (self.unique_keys.snip_id==row.snip_id) & (self.unique_keys.trackid==row.trackid)
+            ].index.to_numpy()
+            uids.append(int(uid))
         
-        boxes = torch.tensor(boxes,dtype=torch.float)
-        classes = torch.tensor(classes,dtype=torch.float)
+        #boxes = torch.tensor(boxes,dtype=torch.float)
+        #classes = torch.tensor(classes,dtype=torch.float)
         
-        return boxes,classes
+        
+        return boxes,classnames,uids,class_ids
+
+    '''def getOtherObjects2(self,sample,all_data):
+
+        boxes = []
+        classes = []
+        uids = []
+
+        other_samples = all_data[(sample.folder,sample.file)]
+        
+        #If there is only 1 object in image then there is nothing to add
+        if len(other_samples)==1:
+            return [],[],[]
+        
+        #Dropping sample from other
+        other_samples.remove([sample.cat_code,sample.snip_id,sample.trackid,sample.xmin,sample.ymin,sample.xmax,sample.ymax])
+
+        for item in other_samples:
+            cat_code,snip_id,trackid,xmin,ymin,xmax,ymax = item
+            cat_code = int(cat_code)
+            trackid = int(trackid)
+
+            boxes.append([xmin,ymin,xmax,ymax])
+            classes.append(self.map_cat[cat_code - 1])
+            uid = self.unique_keys[
+            (self.unique_keys.cat_code==cat_code) & (self.unique_keys.snip_id==snip_id) & (self.unique_keys.trackid==trackid)
+            ].index.to_numpy()
+            uids.append(int(uid))
+
+
+        return boxes,classes,uids'''
         
     def __len__(self):
 
@@ -266,75 +301,104 @@ class ImageNetVID(data.Dataset):
         #Fetch Anchor Sample details
         sample = self.data_set.loc[idx]
         sample_img = cv2.imread(self.path_to_frames+sample.folder+'/'+sample.file+'.JPEG')
-        sample_bbox = torch.tensor([sample.xmin,sample.ymin,sample.xmax,sample.ymax],dtype=torch.float).view(1,-1)
+        sample_bbox = [[sample.xmin,sample.ymin,sample.xmax,sample.ymax]]
+        class_ids = [sample.cat_code-1]
+        class_name = [self.map_cat[sample.cat_code-1]]
+        file_name = sample.snip_id+sample.file
+        sample_uid = self.unique_keys[
+            (self.unique_keys.cat_code==sample.cat_code) & (self.unique_keys.snip_id==sample.snip_id) & (self.unique_keys.trackid==sample.trackid)
+            ].index.to_numpy()
+        uids = [int(sample_uid)]
+
+        #Add uids from other samples in getotherobjectsmethod
+
+        other_sample_boxes,other_sample_classnames,other_uids,other_class_ids = self.getOtherObjects(sample,self.data_set,self.all_data)
+        if len(other_sample_boxes) > 0:
+            sample_bbox = sample_bbox + other_sample_boxes
+            class_name = class_name + other_sample_classnames
+            #file_name = file_name + other_sample_filenames
+            uids = uids + other_uids
+            class_ids = class_ids + other_class_ids
+
+       #Do not normalize because detector unormalizes xywh(predited) hence the target should be unnormalized too
+
+        box_tensor = torch.tensor(sample_bbox)
+        #cid_tensor = torch.tensor(class_ids)
+        #cid_tensor = torch.tensor(class_ids,dtype=torch.float).view(-1,1)
+        h_sample, w_sample, _ = sample_img.shape
+        box_tensor = box_tensor/((torch.tensor([w_sample,h_sample,w_sample,h_sample],dtype=torch.float)).view(1,-1))
+
+        encoded_target = self.encodeTarget_locem(box_tensor,class_ids)
+        encoded_target = encoded_target.unsqueeze(0)
+        #encoded_target = encoded_target.unsqueeze(0)
+        #print(encoded_target.size())
+
+        '''print('Type sample_img',type(sample_img))
+        print('Type sample_bbox',type(sample_bbox))
+        print('Type class_name',type(class_name))
+        print('Type file_name',type(file_name))'''
+
+        return [sample_img,sample_bbox,class_name,file_name,uids,class_ids,encoded_target]
+
+        '''sample_bbox = torch.tensor([sample.xmin,sample.ymin,sample.xmax,sample.ymax],dtype=torch.float).view(1,-1)
 
         #print('PRE_NORM',sample_bbox)
 
-        sample_class = torch.tensor([sample.cat_code-1],dtype=torch.float).view(-1,1)
-
-        #Fetch other samples
-        other_sample_boxes,other_sample_classes = self.getOtherObjects(sample,self.data_set,self.all_data)
-        if len(other_sample_boxes) > 0:
-            sample_bbox = torch.cat([sample_bbox,other_sample_boxes],dim=0)
-            sample_class = torch.cat([sample_class,other_sample_classes], dim=0)
+        sample_class = torch.tensor([sample.cat_code-1]).view(-1,1)'''
 
 
         #Augmentations
        
 
-        if self.split_mode == 'train':
+        '''if self.split_mode == 'train':
             
 
             #Box Augmentations
-            sample_img, sample_bbox = self.aug.random_flip(sample_img,sample_bbox)
+            sample_img, sample_bbox = self.aug.random_flip(sample_img, torch.Tensor(sample_bbox))
             
             sample_img, sample_bbox = self.aug.random_scale(sample_img, sample_bbox)
-            
-            #Non-box augmentations
-            sample_img = self.aug.random_blur(sample_img)
-            #sample_img = self.aug.random_brightness(sample_img)
-            sample_img = self.aug.random_hue(sample_img)
-            sample_img = self.aug.random_saturation(sample_img)
-            
-            sample_img, sample_bbox, sample_class = self.aug.random_shift(sample_img, sample_bbox, sample_class)
-        
-            #sample_img, sample_bbox, sample_class = self.aug.random_crop(sample_img, sample_bbox, sample_class)
            
+            #Non-box augmentations
+            sample_img = self.aug.random_blur(sample_img)            
 
-        h_sample, w_sample, _ = sample_img.shape
- 
+            sample_img = self.aug.random_brightness(sample_img)
+
+            sample_img = self.aug.random_hue(sample_img)
+
+            sample_img = self.aug.random_saturation(sample_img)
+
+            sample_img, sample_bbox, sample_class = self.aug.random_shift(sample_img, sample_bbox, sample_class)
+
+            sample_img, sample_bbox, sample_class = self.aug.random_crop(sample_img, sample_bbox, sample_class)
+        '''
+        #Division issue
+
+        '''h_sample, w_sample, _ = sample_img.shape
+
         #Normalize Bounding boxes
 
-        sample_bbox = sample_bbox/((torch.tensor([w_sample,h_sample,w_sample,h_sample],dtype=torch.float)).view(1,-1))
+        sample_bbox = sample_bbox/(torch.tensor([w_sample,h_sample,w_sample,h_sample],dtype=torch.float)).view(1,-1)
+
 
         #Encoding Target
-        sample_target = self.encodeTarget_locem(sample_bbox,sample_class)
+        sample_target = self.encodeTarget_locem(sample_bbox,sample_class,1)
 
         #Image Resize    
 
         sample_img = cv2.resize(sample_img, dsize=(self.network_dim, self.network_dim), interpolation=cv2.INTER_LINEAR)
 
         #CVTCOLOR
-        #sample_img = cv2.cvtColor(sample_img, cv2.COLOR_BGR2RGB)
+        sample_img = cv2.cvtColor(sample_img, cv2.COLOR_BGR2RGB)
 
         #Image Normalization - # normalize from -1.0 to 1.0.
 
         sample_img = (sample_img - self.mean) / 255.0
 
-
         #Image to Tensor
-        sample_img = self.to_tensor(sample_img)
+        sample_img = self.to_tensor(sample_img)'''
+
+        #return [sample_img,idx]
 
 
-        #Stacking images and tensors 
-        images = sample_img
-        target = sample_target
-
-        '''images = torch.stack([sample_img,positive_img,negative_img],dim=0)
-        target = torch.stack([sample_target,positive_target,negative_target], dim=0)
-        '''
-
-        #return sample_img,sample_bbox
-
-        return images,target
             
+ 

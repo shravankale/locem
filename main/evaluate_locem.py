@@ -114,9 +114,9 @@ S=7
 B=2
 X=5
 C=30
-beta=64
+beta=512
 gamma=1
-image_size = 224
+image_size = 448
 
 def rescaleBoundingBox(height,width,rescaled_dim,xmin,ymin,xmax,ymax):
     
@@ -322,10 +322,10 @@ def main_worker(gpu, ngpus_per_node, args):
     #detector = locEmDetector(args.experiment_path,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.30)
 
     writer = SummaryWriter(path_to_disk)
-    ed = EmbedDatabase(d=64)
+    ed = EmbedDatabase(d=beta)
 
     detector = locEmDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
-    aps = new_validate(val_loader, detector, ed,writer)
+    aps = new_validate(train_loader, detector, ed,writer)
 
     topk1,topk5 = ed.idAccuracy()
 
@@ -529,6 +529,13 @@ def visualize(image,target_boxes,predicted_boxes,writer,n):
             pt2 = (x2,y2)
             image = cv2.rectangle(image,pt1,pt2,green,thickness)
 
+    #Save Image to directory
+    path_to_disk
+    if not os.path.exists(path_to_disk+'saved_images'):
+        os.makedirs(path_to_disk+'saved_images')
+    
+    cv2.imwrite(path_to_disk+'saved_images/'+str(n)+'.jpg',image)
+
     to_tensor = transforms.ToTensor()
     image = to_tensor(image)
     grid = make_grid(image)
@@ -623,9 +630,9 @@ def assign_uids(gt_boxes,uids,pd_boxes,embeddings,ed):
             if compute_iou(gtb,pbox) > threshold:
                 emb = embeddings[j].view(1,-1).numpy()
                 uid = np.array(uids[i]).reshape(-1)
-                print('uid',uid)
-                print('embeddings',emb.shape,uid.shape)
-                print('embedding dtype',emb.dtype,uid.dtype)
+                #print('uid',uid)
+                #print('embeddings',emb.shape,uid.shape)
+                #print('embedding dtype',emb.dtype,uid.dtype)
                 ed.addIndex(emb,uid)
                 print('embedding added')
 
@@ -801,6 +808,7 @@ def new_validate(val_loader, detector, ed,writer):
             sys.exit(0)'''
 
             assign_uids(bbox,class_ids,boxes,embeddings_detected,ed)
+            #assign_uids(bbox,uids,boxes,embeddings_detected,ed)
             #print('Finished assiging ids')
 
             '''if len(embeddings_detected) == len(uids):
@@ -813,9 +821,9 @@ def new_validate(val_loader, detector, ed,writer):
                 no_pred+=1
                 
 
-            total_predictions+=1
-            if len(class_names) > 0 and set(classname) == set(class_names): #set is not an accurate measure needs to be changed
-                accurate_class_predictions+=1
+            #total_predictions+=1
+            #if len(class_names) > 0 and set(classname) == set(class_names): #set is not an accurate measure needs to be changed
+                #accurate_class_predictions+=1
             
             ''' print('class_names',class_names)
             print('boxes',boxes)
@@ -834,14 +842,14 @@ def new_validate(val_loader, detector, ed,writer):
                 x2, y2 = int(x2y2[0]), int(x2y2[1])
                 preds_ev[classname_p].append([filename, prob, x1, y1, x2, y2])
 
-    print('ACCURACY CLASS',(accurate_class_predictions*100.0)/total_predictions)
+    #print('ACCURACY CLASS',(accurate_class_predictions*100.0)/total_predictions)
     print('Evaluate the detection result...')
-    print('same_len_buffer', (same_len_buffer*100.0)/total_predictions)
-    print('no_pred',(no_pred*100.0)/total_predictions)
-    print('total TARGETS_ev len',len(targets_ev))
+    #print('same_len_buffer', (same_len_buffer*100.0)/total_predictions)
+    #print('no_pred',(no_pred*100.0)/total_predictions)
+    #print('total TARGETS_ev len',len(targets_ev))
 
     print('Object based accuracy - Top1',(correct_samples_ac1*100.0)/objects_target)
-    print('Object based accuracy - Top1',(correct_samples_ac5*100.0)/objects_target)
+    print('Object based accuracy - Top5',(correct_samples_ac5*100.0)/objects_target)
 
     #print('IoU based accuracy',(accuracy*100.0)/n_objects)
     #print('acc1,acc5',acc1,acc5)

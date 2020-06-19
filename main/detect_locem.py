@@ -16,12 +16,12 @@ class locEmDetector():
 
     def __init__(self,
         model, class_name_list=None, mean_rgb=[122.67891434, 116.66876762, 104.00698793],
-        conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.3,
+        conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,
         gpu_id=2,S=7,B=2,C=30,X=5,beta=64,image_size=224):
 
         map_vid = pd.read_pickle("../data/map_vid.pkl")
         self.class_name_list = list(map_vid['category_name'])
-        #print('self.class_name_list',self.class_name_list)
+        print('self.class_name_list',self.class_name_list)
 
         self.S, self.B, self.C, self.beta = S,B,C,beta
 

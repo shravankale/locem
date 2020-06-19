@@ -136,14 +136,18 @@ class yoloDetector:
         img = img.cuda()
 
         with torch.no_grad():
-            pred_tensor = self.yolo_imgnetvid(img)
+            pred_tensor, pred_embedding = self.yolo_imgnetvid(img)
+        pred_embedding = pred_embedding.clone().detach()
         pred_tensor = pred_tensor.cpu().data
+        pred_tensor_output = pred_tensor.clone().detach()
         pred_tensor = pred_tensor.squeeze(0) # squeeze batch dimension.
+
+        #print('pred_tensor from detect',pred_tensor_output.size())
 
         # Get detected boxes_detected, labels, confidences, class-scores.
         boxes_normalized_all, class_labels_all, confidences_all, class_scores_all = self.decode(pred_tensor)
         if boxes_normalized_all.size(0) == 0:
-            return [], [], [] # if no box found, return empty lists.
+            return [], [], [],[] # if no box found, return empty lists.
 
         # Apply non maximum supression for boxes of each class.
         boxes_normalized, class_labels, probs = [], [], []
@@ -186,7 +190,7 @@ class yoloDetector:
             prob = float(prob) # convert from Tensor to float.
             probs_detected.append(prob)
 
-        return boxes_detected, class_names_detected, probs_detected
+        return boxes_detected, class_names_detected, probs_detected,pred_tensor_output
 
     def decode(self, pred_tensor):
         """ Decode tensor into box coordinates, class labels, and probs_detected.

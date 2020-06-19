@@ -108,7 +108,7 @@ S=7
 B=2
 X=5
 C=30
-beta=512
+beta=2048
 gamma=1
 image_size = 448
 

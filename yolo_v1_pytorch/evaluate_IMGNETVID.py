@@ -38,10 +38,12 @@ sys.path.append('..')
 
 #For Eval
 from collections import defaultdict
-from main.genINV_Locem_Eval_v2 import ImageNetVID
+from genINV_Yolo_Eval_v2 import ImageNetVID
+from genINV_Yolo_Emb_v2 import ImageNetVID_RTR
 from detect import yoloDetector
-from r50_yolo import resnet50
+from r50_yolo_eval import resnet50
 from torchvision.utils import make_grid
+from util.EmbedDatabase_v3 import EmbedDatabase
 
 from statistics import mean 
 import pickle,cv2
@@ -117,28 +119,7 @@ X=5
 C=30
 image_size = 448
 
-def rescaleBoundingBox(height,width,rescaled_dim,xmin,ymin,xmax,ymax):
-    
-    #Required CNN input dimensions are generally squares hence just one dimension, rescaled_dim
-    scale_x = rescaled_dim/width
-    scale_y = rescaled_dim/height
-
-    xmax = int(xmax * scale_x)
-    xmin = int(xmin * scale_x)
-    ymax = int(ymax * scale_y)
-    ymin = int(ymin * scale_y)
-    
-    return [xmin,ymin,xmax,ymax]
-
 def collate_fn(data):
-
-    '''print("TYPE DATA COLLATE",type(data))
-    print("LEN DATA COLLATE",len(data))
-    print("type data[0]",type(data[0][0]))
-    print("type data[1]",type(data[0][1]))
-    print("type data[2]",type(data[0][2]))'''
-
-    #sys.exit(0)
 
     n = len(data[0])
     out = []
@@ -280,8 +261,10 @@ def main_worker(gpu, ngpus_per_node, args):
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
             if args.gpu is None:
+                
                 checkpoint = torch.load(args.resume)
             else:
+                
                 # Map model to be loaded to specified single gpu.
                 loc = 'cuda:{}'.format(args.gpu)
                 checkpoint = torch.load(args.resume, map_location=loc)
@@ -289,6 +272,7 @@ def main_worker(gpu, ngpus_per_node, args):
             #args.start_epoch = checkpoint['epoch']
             #best_acc1 = checkpoint['best_acc1']
             if args.gpu is not None:
+                
                 # best_acc1 may be from a checkpoint from a different GPU
                 best_acc1 = best_acc1.to(args.gpu)
             #model.load_state_dict(checkpoint['state_dict'])
@@ -300,7 +284,7 @@ def main_worker(gpu, ngpus_per_node, args):
             print("Loaded checkpoint")
         else:
             print("=> no checkpoint found at '{}'".format(args.resume))
-
+    
     cudnn.benchmark = True
 
 
@@ -312,7 +296,7 @@ def main_worker(gpu, ngpus_per_node, args):
     val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
     root_datasets = '/mnt/data1/shravank/datasets/'
 
-
+    writer = SummaryWriter(path_to_disk)
     '''transform = trfms.Compose([
         #add random crop
         #trfms.RandomHorizontalFlip(),
@@ -321,20 +305,36 @@ def main_worker(gpu, ngpus_per_node, args):
         normalize
     ])'''
     
-    #Generators
-    gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X)
-    gen_val = ImageNetVID(root_datasets,val_dataset,split='val',image_size=image_size,S=S,B=B,C=C,X=X)
+    retrieve = False
 
-    train_loader = DataLoader(gen_train,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
-    val_loader = DataLoader(gen_val,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
+    if retrieve:
+        gen_train = ImageNetVID_RTR(root_datasets,train_dataset,split='train',image_size=image_size)
+        gen_val = ImageNetVID_RTR(root_datasets,val_dataset,split='val',image_size=image_size)
 
-    writer = SummaryWriter(path_to_disk)
-    #gt_file = open("../mAP/input/ground-truth/gt.txt", "a")
-    #dt_file = open("../mAP/input/detection-results/dt.txt", "a")
+        #print('bs',args.batch_size)
 
-    #detector = yoloDetector(args.experiment_path)
-    detector = yoloDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,image_size=image_size)
-    aps = new_validate(val_loader, detector, writer)
+        train_loader = DataLoader(gen_train,batch_size=256,shuffle=False)
+        val_loader = DataLoader(gen_val,batch_size=256,shuffle=False)
+
+        #Creating instance of embedding database
+        ed = EmbedDatabase(d=2048)
+        validate_embeddings(val_loader,model,writer,ed)
+        topk1,topk5 = ed.idAccuracy()
+        print('TOPK1',topk1)
+        print('TOPK5',topk5)
+    else:
+        #Generators
+        gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X)
+        gen_val = ImageNetVID(root_datasets,val_dataset,split='val',image_size=image_size,S=S,B=B,C=C,X=X)
+
+        train_loader = DataLoader(gen_train,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
+        val_loader = DataLoader(gen_val,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
+
+        detector = yoloDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.3,S=S,B=B,C=C,X=X,image_size=image_size)
+        aps = new_validate(val_loader, detector, writer)
+
+        print(aps)
+
 
     #gt_file.close()
     #dt_file.close()
@@ -494,6 +494,13 @@ def visualize(image,target_boxes,predicted_boxes,writer,n):
             pt2 = (x2,y2)
             image = cv2.rectangle(image,pt1,pt2,green,thickness)
 
+    #Save Image to directory
+    path_to_disk
+    if not os.path.exists(path_to_disk+'saved_images'):
+        os.makedirs(path_to_disk+'saved_images')
+    
+    cv2.imwrite(path_to_disk+'saved_images/'+str(n)+'.jpg',image)
+
     to_tensor = transforms.ToTensor()
     image = to_tensor(image)
     grid = make_grid(image)
@@ -501,6 +508,14 @@ def visualize(image,target_boxes,predicted_boxes,writer,n):
 
 
     return None
+
+def objects_in_tensor(target_tensor):
+
+    class_mask_target = (target_tensor[:,:,:,4]==1) & (target_tensor[:,:,:,9]==1)
+    target_tensor_objects = target_tensor[class_mask_target]
+   
+    return target_tensor_objects.size(0)   
+
         
 def new_validate(val_loader, detector,writer):
 
@@ -520,8 +535,12 @@ def new_validate(val_loader, detector,writer):
     total_predictions = 0
     n=0
 
+    correct_samples_ac1 = 0
+    correct_samples_ac5 = 0
+    objects_target = 0
+
     with torch.no_grad():
-        for i, (image,bbox,classname,filename,uids) in enumerate(val_loader):
+        for i, (image,bbox,classname,filename,uids,class_ids,target_tensor) in enumerate(val_loader):
             '''
                 images = tensor(1,3,224,224)
                 target = tensor(idx) #idx of dval
@@ -547,7 +566,27 @@ def new_validate(val_loader, detector,writer):
                 #gt_file.write('\n')
 
             #preds_ev[class_name].append([sample.file, 0.99, x1, y1, x2, y2])
-            boxes, class_names, probs = detector.detect(image)
+            boxes, class_names, probs,pred_tensor = detector.detect(image)
+
+            #print('pred_tensor',pred_tensor.size())
+            #print('target_tensor',target_tensor.size())
+
+            if not isinstance(pred_tensor,list):
+                
+                res = class_decoder(pred_tensor,target_tensor,accuracy)
+                #print('res',type(res),res)
+                ac1_res,ac5_res =res
+                #print('correct',type(correct),correct)
+                #print('nobjs',type(nobjs),nobjs)
+                correct_samples_ac1+=ac1_res[0]
+                correct_samples_ac5+=ac5_res[0]
+                objects_target+=ac1_res[1]
+            else:
+                images_noobjs = objects_in_tensor(target_tensor)
+                objects_target+=images_noobjs
+
+            #ed.addIndex(embedding.cpu().numpy(),ids.cpu().numpy())
+
             '''print('TESTING OUTPUT vs TARGET')
             print(class_names,boxes)
             print('------------Target below-------')
@@ -573,13 +612,57 @@ def new_validate(val_loader, detector,writer):
                 dt_file.write('\n')'''
 
     print('ACCURACY CLASS',(accurate_class_predictions*100.0)/total_predictions)
+    print('Object based accuracy - Top1',(correct_samples_ac1*100.0)/objects_target)
+    print('Object based accuracy - Top1',(correct_samples_ac5*100.0)/objects_target)
+
     print('Evaluate the detection result...')
 
     aps = evaluate(preds_ev, targets_ev, class_names=list(class_dict))
 
     return aps
 
-def new_new_validate(val_loader, detector, mode):
+def validate_embeddings(val_loader, yolo,writer,ed):
+
+
+    #Switch to evaluate mode
+    #model.eval()
+    #locEm = yoloDetector(model_path, gpu_id=gpu_id, conf_thresh=-1.0, prob_thresh=-1.0, nms_thresh=0.45)
+
+ 
+
+    with torch.no_grad():
+        for i, (sample_imgs,sample_class,ids) in enumerate(val_loader):
+            '''
+                images = tensor(1,3,224,224)
+                target = tensor(idx) #idx of dval
+            '''
+
+            ''' print('type ids',type(ids),ids.size())
+            print('type ids',type(sample_class),sample_class.size())
+
+            sys.exit(0)'''
+
+            sample_imgs = sample_imgs.float().cuda()
+            
+            pred_tensor, pred_embedding = yolo(sample_imgs)
+            
+            ed.addIndex(pred_embedding.cpu().numpy(),sample_class.numpy())
+
+            
+            '''if True:
+                
+                visualize(image,bbox,boxes,writer,i)
+                n+=1'''
+
+
+
+    print('Evaluate the detection result...')
+
+    
+
+    return 
+
+'''def new_new_validate(val_loader, detector, mode):
 
     if mode=='train':
         data = pd.read_pickle("../../data/metadata_imgnet_vid_train.pkl")
@@ -597,10 +680,10 @@ def new_new_validate(val_loader, detector, mode):
 
     with torch.no_grad():
         for i, (image,target) in enumerate(val_loader):
-            '''
-                images = tensor(1,3,224,224)
-                target = tensor(idx) #idx of dval
-            '''
+            
+                #images = tensor(1,3,224,224)
+                #target = tensor(idx) #idx of dval
+            
             targets_ev = defaultdict(list)
             preds_ev = defaultdict(list)
 
@@ -666,9 +749,51 @@ def log_images(images,pred,target):
         plt.yticks([])
         plt.imshow(images[i].permute(1,2,0).numpy())
     
-    return figure
+    return figure'''
+
+def class_decoder(pred_tensor,target_tensor,accuracy):
+
+    '''
+        Args:
+        Out:
+    '''
+    #Alternate class_mask_target
+    class_mask_target = (target_tensor[:,:,:,4]==1) & (target_tensor[:,:,:,9]==1)
+
+    #class_mask_target tensor is used to identify the gamma boxes in pred_tensor
+    pred_tensor_gamma = pred_tensor[class_mask_target]
+    pred_tensor_gamma = pred_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
+
+    #class_mask_target tensor is used to identify the gamma boxes in target_tensor
+    target_tensor_gamma = target_tensor[class_mask_target]
+    target_tensor_gamma = target_tensor_gamma[:,B*X:B*X+C] #We only want the class embeddings [n_objects,C]
+
+    #Finds the class label
+    target = torch.argmax(target_tensor_gamma, dim=1)  #[n_objects,1]
+    target = target.view(-1,1)
+    output = pred_tensor_gamma #[n_objects,C]
+
+    correct,batch_size = accuracy(output, target, topk=(1, 5))
 
 
+    return correct,batch_size
+
+def accuracy(output, target, topk=(1,)):
+    """Computes the accuracy over the k top predictions for the specified values of k"""
+    with torch.no_grad():
+        maxk = max(topk)
+        batch_size = target.size(0)
+
+        _, pred = output.topk(maxk, 1, True, True)
+        pred = pred.t()
+        correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+        res = []
+        for k in topk:
+            correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+            #res.append(correct_k.mul_(100.0 / batch_size))
+            res.append((correct_k.item(),batch_size))
+        return res
 
 if __name__ == '__main__':
     main()
