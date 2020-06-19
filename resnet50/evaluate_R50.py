@@ -95,7 +95,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 parser.add_argument('-en','--experiment_name', type=str, help="Name of the experiment")
 #parser.add_argument('-pd','--path_to_disk',default='/disk/shravank/imageNet_ResNet50_savedModel/', type=str, help="Path to disk")
 
-
+#!Needs update from IQ
 best_acc1 = 0
 path_to_disk = '/disk/shravank/imageNet_ResNet50_savedModel/main/run/'
 
@@ -262,10 +262,10 @@ def main_worker(gpu, ngpus_per_node, args):
     normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 
-    train_dataset = "../../data/metadata_imgnet_vid_train_n2.pkl"
+    train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
     #best val dataset has _new
-    val_dataset = "../../data/metadata_imgnet_vid_val_n2.pkl"
-    root_datasets = "../../../../datasets/"
+    val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
+    root_datasets = '/mnt/data1/shravank/datasets/'
 
     '''train_dataset = datasets.ImageFolder(
         traindir,
