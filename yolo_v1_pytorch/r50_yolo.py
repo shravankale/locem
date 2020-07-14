@@ -149,6 +149,7 @@ class ResNet(nn.Module):
                                bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
+        #self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
@@ -160,11 +161,20 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         #Custom for locem_multihead
         #num_classes = 7*7*(2*5+30+64)
-        num_classes = self.S*self.S*(self.X*self.B + self.C)
-        #self.l1 = nn.Linear(512 * block.expansion,4096)
-        #self.relu2 = nn.ReLU()
-        self.fc_locem = nn.Linear(2048, num_classes)
-        self.sigmoid = nn.Sigmoid()
+        yolo_out = self.S*self.S*(self.X*self.B + self.C)
+        ##self.l1 = nn.Linear(512 * block.expansion,4096)
+        #self.relu2 = nn.ReLU(inplace=True)
+        ##self.fc_yolo = nn.Linear(4096, yolo_out,bias=False)
+        #self.checkLayer = nn.Linear(4096,yolo_out,bias=False)
+        #self.sigmoid = nn.Sigmoid()
+
+        #New Sequential
+        self.yolob = nn.Sequential(
+            nn.Linear(2048,4096),
+            nn.Dropout(),
+            nn.LeakyReLU(0.1),
+            nn.Linear(4096, yolo_out)
+        )
         
         
 
@@ -225,14 +235,17 @@ class ResNet(nn.Module):
 
         #y=torch.flatten(x,1)
         y=torch.flatten(x,1)
-
+        # x = x.view(x.size(0), -1)
         x = torch.flatten(x, 1)
-        #x = self.l1(x)
+        ##x = F.relu(self.l1(x))
         #x = self.relu2(x)
-        x = self.fc_locem(x)
+        ##x = self.fc_yolo(x)
+       
+        x = self.yolob(x)
+
         x = x.view(-1,self.S,self.S,self.X*self.B+self.C)
         #x[:,:,:,:self.X*self.B+self.C]=self.sigmoid(x[:,:,:,:self.X*self.B+self.C])
-        x = self.sigmoid(x)
+        ##x = self.sigmoid(x)
         #x[:,:,:,40:]=F.normalize(x[:,:,:,40:],p=2)
 
         return x,y

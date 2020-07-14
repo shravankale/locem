@@ -150,7 +150,15 @@ class Loss(nn.Module):
         bbox_target_response = bbox_target[coord_response_mask].view(-1, 5)  # [n_response, 5], only the first 4=(x, y, w, h) are used
         target_iou = bbox_target_iou[coord_response_mask].view(-1, 5)        # [n_response, 5], only the last 1=(conf,) is used
         loss_xy = F.mse_loss(bbox_pred_response[:, :2], bbox_target_response[:, :2], reduction='sum')
-        loss_wh = F.mse_loss(torch.sqrt(bbox_pred_response[:, 2:4]), torch.sqrt(bbox_target_response[:, 2:4]), reduction='sum')
+
+        #Handling negative square root loss
+        loss_wh = F.mse_loss(
+            torch.sign(bbox_target_response[:, 2:4])*torch.sqrt(torch.abs(bbox_target_response[:, 2:4])+1e-8),
+            torch.sign(bbox_pred_response[:, 2:4])*torch.sqrt(torch.abs(bbox_pred_response[:, 2:4])+1e-8),
+            reduction='sum'
+        )
+
+        ##loss_wh = F.mse_loss(torch.sqrt(bbox_pred_response[:, 2:4]), torch.sqrt(bbox_target_response[:, 2:4]), reduction='sum')
         loss_obj = F.mse_loss(bbox_pred_response[:, 4], target_iou[:, 4], reduction='sum')
 
         # Class probability loss for the cells which contain objects.

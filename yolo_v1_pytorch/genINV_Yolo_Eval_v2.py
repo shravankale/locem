@@ -101,7 +101,7 @@ class ImageNetVID(data.Dataset):
 
         self.data_set = pd.read_pickle(path_to_dataset)
         self.unique_keys = self.getKeys(pd.DataFrame(self.data_set))
-        #self.data_set = self.data_set[:10]
+        #self.data_set = self.data_set[:1000]
 
         self.network_dim = image_size
         mean_rgb = [122.67891434, 116.66876762, 104.00698793]

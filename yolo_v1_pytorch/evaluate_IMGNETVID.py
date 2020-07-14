@@ -41,7 +41,7 @@ from collections import defaultdict
 from genINV_Yolo_Eval_v2 import ImageNetVID
 from genINV_Yolo_Emb_v2 import ImageNetVID_RTR
 from detect import yoloDetector
-from r50_yolo_eval import resnet50
+from r50_yolo import resnet50
 from torchvision.utils import make_grid
 from util.EmbedDatabase_v3 import EmbedDatabase
 
@@ -330,7 +330,7 @@ def main_worker(gpu, ngpus_per_node, args):
         train_loader = DataLoader(gen_train,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
         val_loader = DataLoader(gen_val,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
 
-        detector = yoloDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.3,S=S,B=B,C=C,X=X,image_size=image_size)
+        detector = yoloDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,image_size=image_size)
         aps = new_validate(val_loader, detector, writer)
 
         print(aps)
@@ -379,7 +379,7 @@ def compute_average_precision(recall, precision):
 
     return ap
        
-def evaluate(preds,targets,class_names,threshold=0.5):
+def evaluate(preds,targets,class_names,threshold=0.10):
     
     """ Compute mAP metric.
     Args:
@@ -561,6 +561,7 @@ def new_validate(val_loader, detector,writer):
 
                 x1,y1,x2,y2 = bbox[b]
                 targets_ev[(filename,classname[b])].append([x1,y1,x2,y2])
+                
                 '''out = ' '.join(str(e) for e in [classname[b],x1,y1,x2,y2])
                 gt_file.write(out)'''
                 #gt_file.write('\n')

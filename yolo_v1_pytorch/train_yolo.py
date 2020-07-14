@@ -23,6 +23,10 @@ import torchvision.models as models
 sys.path.append('..')
 from genINV_Yolo_v2 import ImageNetVID
 
+from pytorch_model_summary import summary
+
+torch.autograd.set_detect_anomaly(True)
+
 model_names = sorted(name for name in models.__dict__
     if name.islower() and not name.startswith("__")
     and callable(models.__dict__[name]))
@@ -44,7 +48,8 @@ print('CUDA device_count: {}'.format(torch.cuda.device_count()))
 #checkpoint_path = 'weights/darknet/model_best.pth.tar'
 
 path_to_disk = '/mnt/data1/shravank/results/locem/main/run/'
-experiment_name = 'g4_yolob_e300b64_v1.1'              #'g4_yolob_e300b64_v1'
+experiment_name = 'g5_yolob_e300b64_v1.03'
+#experiment_name = 'g5_yolob_e300b192_v1'              #'g4_yolob_e300b64_v1'
 path_to_disk = path_to_disk + experiment_name + '/'
 # Frequency to print/log the results.
 print_freq = 5
@@ -52,26 +57,22 @@ tb_log_freq = 5
 
 #Network Parameteres
 S=7
-B=5
+B=2
 X=5
 C=30
 image_size = 448
 
 # Training hyper parameters.
 init_lr = 0.001
-base_lr = 0.01
+base_lr = 0.001
 momentum = 0.9
-weight_decay = 1.0e-4
+weight_decay = 5e-4
 num_epochs = 300
 batch_size = 64
 
-def class_decoder(self,pred_tensor,target_tensor,accuracy):
+'''def class_decoder(self,pred_tensor,target_tensor,accuracy):
 
-    '''
-        Args:
-        Out:
-    '''
-
+   
     S,B,C,X,gamma = self.S,self.B,self.C,self.X,self.gamma
 
     #Extract the mask of targets with a gamma value 1,2,3. This will give us a location as to where the boxes are and their class embedding respectively
@@ -95,18 +96,20 @@ def class_decoder(self,pred_tensor,target_tensor,accuracy):
 
     acc1, acc5 = accuracy(output, target, topk=(1, 5))
 
-    return acc1, acc5
+    return acc1, acc5'''
 
 # Learning rate scheduling.
 def update_lr(optimizer, epoch, burnin_base, burnin_exp=4.0):
     if epoch == 0:
         lr = init_lr + (base_lr - init_lr) * math.pow(burnin_base, burnin_exp)
     elif epoch == 1:
-        lr = base_lr
-    elif epoch == 75:
         lr = 0.001
-    elif epoch == 105:
-        lr = 0.0001
+    elif epoch == 15:
+        lr = 0.001
+    elif epoch == 50: #75
+        lr = 0.0001 #0.001
+    elif epoch == 80: #105
+        lr = 0.00001 #0.0001
     else:
         return
 
@@ -146,6 +149,18 @@ else:
 
 #print(yolo)
 
+
+
+# show input shape
+#print(summary(yolo, torch.rand((10, 3, 448, 448)), show_input=True))
+
+# show output shape
+#print(summary(yolo, torch.rand((10, 3, 448, 448)), show_input=False))
+
+# show output shape and hierarchical view of net
+#print(summary(yolo, torch.rand((10, 3, 448, 448)), show_input=False, show_hierarchical=True))
+
+
 #Enable Parallel
 yolo = torch.nn.DataParallel(yolo).cuda()
 
@@ -178,6 +193,8 @@ writer = SummaryWriter(log_dir=path_to_disk)
 logfile = open(os.path.join(log_dir, 'log.txt'), 'w')
 best_val_loss = np.inf
 
+f = open(os.path.join(log_dir,'best_loss_epoch.txt'),'a')
+
 for epoch in range(num_epochs):
     print('\n')
     print('Starting epoch {} / {}'.format(epoch, num_epochs))
@@ -199,8 +216,12 @@ for epoch in range(num_epochs):
         targets = Variable(targets)
         imgs, targets = imgs.cuda(), targets.cuda()
 
+        #print('imgs size'+str(imgs.size()))
+        #print(imgs)
+
         # Forward to compute loss.
-        preds, _ = yolo(imgs)      
+        preds, _ = yolo(imgs)
+        #print(preds)      
         loss, loss_class, loss_box = criterion(preds, targets)
         loss_this_iter = loss.item()
         total_loss += loss_this_iter * batch_size_this_iter
@@ -252,9 +273,15 @@ for epoch in range(num_epochs):
     # Save results.
     logfile.writelines(str(epoch + 1) + '\t' + str(val_loss) + '\n')
     logfile.flush()
+
+    if epoch<102 and epoch%10==0:
+        torch.save(yolo.state_dict(), os.path.join(log_dir, 'model_ep'+str(epoch)+'.pth'))
+
     torch.save(yolo.state_dict(), os.path.join(log_dir, 'model_latest.pth'))
     if best_val_loss > val_loss:
         best_val_loss = val_loss
+        
+        f.write('Epoch: '+str(epoch)+' '+'Loss: '+str(best_val_loss)+'\n')
         torch.save(yolo.state_dict(), os.path.join(log_dir, 'model_best.pth'))
 
     # Print.
@@ -269,5 +296,7 @@ for epoch in range(num_epochs):
     ''' # TensorBoard.
     writer.add_scalar('test/loss', val_loss, epoch + 1)'''
 
+f.close()
+writer.flush()
 writer.close()
 logfile.close()
