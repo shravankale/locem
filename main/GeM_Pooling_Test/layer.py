@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from torch.nn import functional as F
-import functional as LF
+import GeM_Pooling_Test.functional as LF
 
 class Layer(nn.Module):
     """

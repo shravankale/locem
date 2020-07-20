@@ -20,7 +20,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 from r50_locem import resnet18
-from r50_locem import resnet50
+from GeM_Pooling_Test.r50_locem import resnet50
 from r50_locem import resnet101
 torch.autograd.set_detect_anomaly(True)
 
@@ -54,7 +54,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet18)')
-parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=90, type=int, metavar='N',
                     help='number of total epochs to run')
@@ -69,7 +69,7 @@ parser.add_argument('--lr', '--learning-rate', default=0.0001, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
-parser.add_argument('--wd', '--weight-decay', default= 1e-4, type=float,
+parser.add_argument('--wd', '--weight-decay', default= 5e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)',
                     dest='weight_decay')
 parser.add_argument('-p', '--print-freq', default=10, type=int,
@@ -108,7 +108,7 @@ S=7
 B=2
 X=5
 C=30
-beta=2048
+beta=64
 gamma=1
 image_size = 448
 
@@ -178,6 +178,8 @@ def main():
 
     global path_to_disk
     path_to_disk = path_to_disk + args.experiment_name + '/'
+
+    
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -326,7 +328,8 @@ def main_worker(gpu, ngpus_per_node, args):
             model.features = torch.nn.DataParallel(model.features)
             model.cuda()
         else:
-            model = torch.nn.DataParallel(model).cuda()
+            #model = torch.nn.DataParallel(model).cuda()
+            model.to(torch.device('cuda:1'))
 
     # define loss function (criterion) and optimizer
     #criterion = nn.CrossEntropyLoss().cuda(args.gpu)
@@ -411,7 +414,7 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)'''
 
     #train_loader = DataLoader(gen_train,batch_size=args.batch_size,num_workers=args.workers,shuffle=True,collate_fn=collate_fn)
-    train_loader = DataLoader(gen_train,batch_size=args.batch_size,num_workers=args.workers,shuffle=True,collate_fn=collate_fn)
+    train_loader = DataLoader(gen_train,batch_size=args.batch_size,num_workers=args.workers,shuffle=True,collate_fn=collate_fn,pin_memory=True)
 
 
     '''tl = iter(train_loader)
@@ -431,7 +434,7 @@ def main_worker(gpu, ngpus_per_node, args):
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)'''
 
-    val_loader = DataLoader(gen_val,batch_size=args.batch_size,num_workers=args.workers,collate_fn=collate_fn)
+    val_loader = DataLoader(gen_val,batch_size=args.batch_size,num_workers=args.workers,collate_fn=collate_fn,pin_memory=True)
     #val_loader = DataLoader(gen_val,batch_size=119/154,,num_workers=11)
 
     writer = SummaryWriter(path_to_disk) 
@@ -562,9 +565,12 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         
         # measure data loading time
         data_time.update(time.time() - end)
-        if args.gpu is not None:
-            images = images.cuda(args.gpu, non_blocking=True)
-        target = target.cuda(args.gpu, non_blocking=True)
+        #if args.gpu is not None:
+            #images = images.cuda(args.gpu, non_blocking=True)
+
+        images = images.to(torch.device('cuda:1'))
+        #target = target.cuda(args.gpu, non_blocking=True)
+        target = target.to(torch.device('cuda:1'))
 
         # compute output
         output = model(images)
@@ -663,8 +669,10 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
         for i, (images, target) in enumerate(val_loader):
             
             if args.gpu is not None:
-                images = images.cuda(args.gpu, non_blocking=True)
-            target = target.cuda(args.gpu, non_blocking=True)
+                #images = images.cuda(args.gpu, non_blocking=True)
+                images = images.to(torch.device('cuda:1'))
+            #target = target.cuda(args.gpu, non_blocking=True)
+            target = target.to(torch.device('cuda:1'))
 
             # compute output
             output = model(images)
@@ -841,9 +849,9 @@ def adjust_learning_rate(optimizer, epoch, args):
         lr = 0.0001'''
 
     if epoch == 0:
+        lr = 0.0001
+    elif epoch >= 5:
         lr = 0.001
-    elif epoch >= 1:
-        lr = 0.01
     elif epoch >= 75:
         lr = 0.001
     elif epoch >= 105:

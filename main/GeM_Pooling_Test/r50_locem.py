@@ -6,7 +6,7 @@ from torch.utils.model_zoo import load_url as load_state_dict_from_url
 
 #GeM Pooling
 #from gem_module import GeM
-from layer import Layer
+from GeM_Pooling_Test.layer import Layer
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -170,11 +170,19 @@ class ResNet(nn.Module):
         #self.gem = F.avg_pool2d(x.pow(self.p), (x.size(-2), x.size(-1))).pow(1.0 / self.p)
         #Custom for locem_multihead
         #num_classes = 7*7*(2*5+30+64)
-        num_classes = self.S*self.S*(self.X*self.B + self.C + self.beta)
-        self.l1 = nn.Linear(512 * block.expansion,4096)
+        ##num_classes = self.S*self.S*(self.X*self.B + self.C + self.beta)
+        ##self.l1 = nn.Linear(512 * block.expansion,4096)
         #self.relu2 = nn.ReLU()
-        self.fc_locem = nn.Linear(4096, num_classes) #2048 in g4
+        ##self.fc_locem = nn.Linear(4096, num_classes) #2048 in g4
         #self.sigmoid = nn.Sigmoid()
+
+        self.locem_out = self.S*self.S*(self.X*self.B + self.C + self.beta)
+        self.fc_locem = nn.Sequential(
+            nn.Linear(2048,4096),
+            nn.LeakyReLU(0.1),
+            nn.Dropout(p=0.5),
+            nn.Linear(4096,self.locem_out)
+        )
         
         
 
@@ -235,7 +243,7 @@ class ResNet(nn.Module):
         x = self.gem(x)
 
         x = torch.flatten(x, 1)
-        x = F.relu(self.l1(x))
+        ###x = F.relu(self.l1(x))
         #x = self.relu2(x)
         x = self.fc_locem(x)
         x = x.view(-1,self.S,self.S,self.X*self.B+self.C+self.beta)

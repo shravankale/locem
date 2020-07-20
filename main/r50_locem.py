@@ -160,12 +160,19 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         #Custom for locem_multihead
         #num_classes = 7*7*(2*5+30+64)
-        num_classes = self.S*self.S*(self.X*self.B + self.C + self.beta)
+        ##num_classes = self.S*self.S*(self.X*self.B + self.C + self.beta)
         #self.l1 = nn.Linear(512 * block.expansion,4096)
         #self.relu2 = nn.ReLU()
-        self.fc_locem = nn.Linear(2048, num_classes) #2048 in g4
-        self.sigmoid = nn.Sigmoid()
-        
+        ##self.fc_locem = nn.Linear(2048, num_classes) #2048 in g4
+        ##self.sigmoid = nn.Sigmoid()
+
+        self.locem_out = self.S*self.S*(self.X*self.B + self.C + self.beta)
+        self.fc_locem = nn.Sequential(
+            nn.Linear(2048,4096),
+            nn.Dropput(p=0.5),
+            nn.LeakyReLU(0.1),
+            nn.Linear(4096,self.locem_out)
+        )        
         
 
         for m in self.modules():
@@ -225,9 +232,10 @@ class ResNet(nn.Module):
         x = torch.flatten(x, 1)
         #x = self.l1(x)
         #x = self.relu2(x)
+        ##x = self.fc_locem(x)
         x = self.fc_locem(x)
         x = x.view(-1,self.S,self.S,self.X*self.B+self.C+self.beta)
-        x[:,:,:,:self.X*self.B+self.C]=self.sigmoid(x[:,:,:,:self.X*self.B+self.C])
+        ##x[:,:,:,:self.X*self.B+self.C]=self.sigmoid(x[:,:,:,:self.X*self.B+self.C])
         #x[:,:,:,40:]=F.normalize(x[:,:,:,40:],p=2)
 
         return x

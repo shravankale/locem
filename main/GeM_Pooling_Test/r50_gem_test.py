@@ -34,11 +34,14 @@ gamma=1
 image_size = 448
 
 model = resnet50(pretrained=True,S=S,B=B,C=C,X=X,beta=beta)
-model = torch.nn.DataParallel(model).cuda()
-
+#model = torch.nn.DataParallel(model).cuda()
+model.to(torch.device('cuda:1'))
+#imgs.to(torch.device('cuda:1'))
+#model.eval()
 print(model)
 
-inp = torch.rand(64,3,448,448)
+inp = torch.rand(32,3,image_size,image_size)
+inp = inp.to(torch.device('cuda:1'))
 out = model(inp)
 
-print(out.size())
+print(out)
