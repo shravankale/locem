@@ -4,6 +4,7 @@ import random
 import shutil
 import time
 import warnings
+import socket
 import numpy as np
 
 import torch
@@ -375,7 +376,12 @@ def main_worker(gpu, ngpus_per_node, args):
     #best val dataset has _new
     val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
     #root_datasets = "../../../../datasets/"
-    root_datasets = '/mnt/data1/shravank/datasets/'
+    if socket.gethostname() == 'finity':
+        root_datasets = '/mnt/data1/shravank/datasets/'
+    elif socket.gethostname() == 'iq.cs.uoregon.edu':
+        root_datasets = '/disk/shravank/datasets'
+    else
+        raise ValueError('Unknown host')
 
     '''train_dataset = datasets.ImageFolder(
         traindir,

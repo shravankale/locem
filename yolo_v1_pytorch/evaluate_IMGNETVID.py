@@ -4,6 +4,7 @@ import random
 import shutil
 import time
 import warnings
+import socket
 import numpy as np
 import pandas as pd
 
@@ -245,6 +246,7 @@ def main_worker(gpu, ngpus_per_node, args):
             model.cuda()
         else:
             model = torch.nn.DataParallel(model).cuda()
+            #model.to(torch.device('cuda:1'))
 
     # define loss function (criterion) and optimizer
     #criterion = nn.CrossEntropyLoss().cuda(args.gpu)
@@ -294,7 +296,13 @@ def main_worker(gpu, ngpus_per_node, args):
     train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
     #best val dataset has _new
     val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
-    root_datasets = '/mnt/data1/shravank/datasets/'
+    
+    if socket.gethostname() == 'finity':
+        root_datasets = '/mnt/data1/shravank/datasets/'
+    elif socket.gethostname() == 'iq.cs.uoregon.edu':
+        root_datasets = '/disk/shravank/datasets'
+    else
+        raise ValueError('Unknown host')
 
     writer = SummaryWriter(path_to_disk)
     '''transform = trfms.Compose([
@@ -330,7 +338,7 @@ def main_worker(gpu, ngpus_per_node, args):
         train_loader = DataLoader(gen_train,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
         val_loader = DataLoader(gen_val,batch_size=args.batch_size,shuffle=False,collate_fn=collate_fn)
 
-        detector = yoloDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,image_size=image_size)
+        detector = yoloDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.2,S=S,B=B,C=C,X=X,image_size=image_size)
         aps = new_validate(val_loader, detector, writer)
 
         print(aps)
@@ -379,7 +387,7 @@ def compute_average_precision(recall, precision):
 
     return ap
        
-def evaluate(preds,targets,class_names,threshold=0.10):
+def evaluate(preds,targets,class_names,threshold=0.3):
     
     """ Compute mAP metric.
     Args:

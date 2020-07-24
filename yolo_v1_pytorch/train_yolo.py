@@ -10,7 +10,7 @@ from yolo_v1 import YOLOv1
 from loss import Loss
 import sys
 
-import os,sys
+import os,sys,socket
 import numpy as np
 import math
 from datetime import datetime
@@ -163,6 +163,7 @@ else:
 
 #Enable Parallel
 yolo = torch.nn.DataParallel(yolo).cuda()
+#yolo.to(torch.device('cuda:1'))
 
 # Setup loss and optimizer.
 criterion = Loss(feature_size=S, num_bboxes=B, num_classes=C, lambda_coord=5.0, lambda_noobj=0.5)
@@ -172,7 +173,13 @@ optimizer = torch.optim.SGD(yolo.parameters(), lr=init_lr, momentum=momentum, we
 train_dataset = "../data/metadata_imgnet_vid_train_n2.pkl"
 #best val dataset has _new
 val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
-root_datasets = '/mnt/data1/shravank/datasets/' 
+
+if socket.gethostname() == 'finity':
+    root_datasets = '/mnt/data1/shravank/datasets/'
+elif socket.gethostname() == 'iq.cs.uoregon.edu':
+    root_datasets = '/disk/shravank/datasets'
+else
+    raise ValueError('Unknown host')
 
 # Load Pascal-VOC dataset.
 gen_train = ImageNetVID(root_datasets,train_dataset,split='train',image_size=image_size,S=S,B=B,C=C,X=X)
@@ -215,6 +222,7 @@ for epoch in range(num_epochs):
         imgs = Variable(imgs)
         targets = Variable(targets)
         imgs, targets = imgs.cuda(), targets.cuda()
+        #imgs,targets = imgs.to(torch.device('cuda:1')), targets.to(torch.device('cuda:1'))
 
         #print('imgs size'+str(imgs.size()))
         #print(imgs)
@@ -260,6 +268,7 @@ for epoch in range(num_epochs):
         imgs = Variable(imgs)
         targets = Variable(targets)
         imgs, targets = imgs.cuda(), targets.cuda()
+        #imgs,targets = imgs.to(torch.device('cuda:1')), targets.to(torch.device('cuda:1'))
 
         # Forward to compute validation loss.
         with torch.no_grad():
