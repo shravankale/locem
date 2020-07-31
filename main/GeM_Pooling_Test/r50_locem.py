@@ -124,7 +124,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers,S=7,B=2,C=30,X=5,beta=64, num_classes=1000, zero_init_residual=False,
+    def __init__(self, block, layers,S=7,B=2,C=30,X=5,beta=64,gem=False,p=3.0, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
         super(ResNet, self).__init__()
@@ -139,9 +139,11 @@ class ResNet(nn.Module):
         self.C = C 
         self.X = X
         self.beta = beta
+        self.gem = gem
 
-        self.p = 3.0
-        self.p = torch.tensor(self.p)
+        if self.gem:
+            self.p = p
+            self.p = torch.tensor(self.p)
 
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
@@ -166,7 +168,11 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[2])
         #self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         #self.gem = GeM('GeM',p=torch.tensor(self.p))
-        self.gem = Layer('gem',p=self.p)
+        if self.gem:
+            self.gem = Layer('gem',p=self.p)
+        else:
+            self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+
         #self.gem = F.avg_pool2d(x.pow(self.p), (x.size(-2), x.size(-1))).pow(1.0 / self.p)
         #Custom for locem_multihead
         #num_classes = 7*7*(2*5+30+64)
@@ -240,7 +246,10 @@ class ResNet(nn.Module):
         x = self.layer4(x)
 
         #x = self.avgpool(x)
-        x = self.gem(x)
+        if self.gem:
+            x = self.gem(x)
+        else:
+            x = self.avgpool(x)
 
         x = torch.flatten(x, 1)
         ###x = F.relu(self.l1(x))

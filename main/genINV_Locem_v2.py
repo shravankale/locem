@@ -17,7 +17,7 @@ class ImageNetVID(data.Dataset):
 
     def __init__(self,root_datasets,path_to_dataset,split,image_size,S,B,C,X,gamma,transform=None):
         
-        print('USING v101 of generator')
+        print('USING v2 of generator')
     
         self.transform = transform
         self.root_datasets = root_datasets

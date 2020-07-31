@@ -99,11 +99,20 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
                          'fastest way to use PyTorch for either single node or '
                          'multi node data parallel training')
 parser.add_argument('-en','--experiment_name', type=str, help="Name of the experiment")
+parser.add_argument('--multigpu',dest='multigpu',action='store_true', help='True to use MultipleGpus')
 #parser.add_argument('-pd','--path_to_disk',default='/disk/shravank/imageNet_ResNet50_savedModel/', type=str, help="Path to disk")
 
+current_socket = socket.gethostname()
+if current_socket == 'finity':
+    path_to_disk = '/mnt/data1/shravank/results/locem/main/run/'
+elif current_socket == 'iq.cs.uoregon.edu':
+    path_to_disk = '/disk/shravank/results/locem/main/run/'
+else:
+    raise ValueError('Unknown host')
 
 best_acc1 = 0
-path_to_disk = '/mnt/data1/shravank/results/locem/main/run/'
+gpu_ids = '1,2'
+
 
 S=7
 B=2
@@ -244,11 +253,11 @@ def main_worker(gpu, ngpus_per_node, args):
         print("=> creating model '{}'".format(args.arch))
         #model = models.__dict__[args.arch]()
         model = resnet50(S=S,B=B,C=C,X=X,beta=beta)
-
-
-    #model = models.resnet50()
     
-   
+    #Handling MultiGpu options
+    if args.multigpu:
+        os.environ['CUDA_VISIBLE_DEVICES'] = gpu_ids
+    
 
     #final_layer_units = S*S*(B*X+C+beta)
 
@@ -329,8 +338,10 @@ def main_worker(gpu, ngpus_per_node, args):
             model.features = torch.nn.DataParallel(model.features)
             model.cuda()
         else:
-            #model = torch.nn.DataParallel(model).cuda()
-            model.to(torch.device('cuda:1'))
+            if args.multigpu:
+                model = torch.nn.DataParallel(model).cuda()
+            else:
+                model.to(torch.device('cuda:1'))
 
     # define loss function (criterion) and optimizer
     #criterion = nn.CrossEntropyLoss().cuda(args.gpu)
@@ -376,11 +387,11 @@ def main_worker(gpu, ngpus_per_node, args):
     #best val dataset has _new
     val_dataset = "../data/metadata_imgnet_vid_val_n2.pkl"
     #root_datasets = "../../../../datasets/"
-    if socket.gethostname() == 'finity':
+    if current_socket == 'finity':
         root_datasets = '/mnt/data1/shravank/datasets/'
-    elif socket.gethostname() == 'iq.cs.uoregon.edu':
-        root_datasets = '/disk/shravank/datasets'
-    else
+    elif current_socket == 'iq.cs.uoregon.edu':
+        root_datasets = '/disk/shravank/datasets/'
+    else:
         raise ValueError('Unknown host')
 
     '''train_dataset = datasets.ImageFolder(
@@ -574,9 +585,12 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         #if args.gpu is not None:
             #images = images.cuda(args.gpu, non_blocking=True)
 
-        images = images.to(torch.device('cuda:1'))
-        #target = target.cuda(args.gpu, non_blocking=True)
-        target = target.to(torch.device('cuda:1'))
+        if args.multigpu:
+            images = images.cuda(args.gpu, non_blocking=True)
+            target = target.cuda(args.gpu, non_blocking=True)
+        else:
+            images = images.to(torch.device('cuda:1'))
+            target = target.to(torch.device('cuda:1'))
 
         # compute output
         output = model(images)
@@ -674,11 +688,18 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
         end = time.time()
         for i, (images, target) in enumerate(val_loader):
             
-            if args.gpu is not None:
+            '''if args.gpu is not None:
                 #images = images.cuda(args.gpu, non_blocking=True)
                 images = images.to(torch.device('cuda:1'))
             #target = target.cuda(args.gpu, non_blocking=True)
-            target = target.to(torch.device('cuda:1'))
+            target = target.to(torch.device('cuda:1'))'''
+
+            if args.multigpu:
+                images = images.cuda(args.gpu, non_blocking=True)
+                target = target.cuda(args.gpu, non_blocking=True)
+            else:
+                images = images.to(torch.device('cuda:1'))
+                target = target.to(torch.device('cuda:1'))
 
             # compute output
             output = model(images)

@@ -16,6 +16,7 @@ import torch.optim
 import torch.multiprocessing as mp
 import torch.utils.data
 import torch.utils.data.distributed
+from torch.utils.tensorboard import SummaryWriter
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
@@ -24,6 +25,7 @@ from r50_locem import resnet50
 from r50_locem import resnet101
 torch.autograd.set_detect_anomaly(True)
 
+from pytorch_model_summary import summary
 
 S=7
 B=2
@@ -44,4 +46,13 @@ inp = torch.rand(32,3,image_size,image_size)
 inp = inp.to(torch.device('cuda:1'))
 out = model(inp)
 
-print(out)
+writer = SummaryWriter()
+writer.add_graph(model,input_to_model=inp)
+
+# show input shape
+print(summary(model,inp, show_input=True))
+
+# show output shape
+print(summary(model,inp, show_input=False))
+
+print(out.size())
