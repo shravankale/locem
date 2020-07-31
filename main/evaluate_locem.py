@@ -23,7 +23,8 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 torch.autograd.set_detect_anomaly(True)
 from torchvision.utils import make_grid
-from r50_locem import resnet50
+#from r50_locem import resnet50
+from GeM_Pooling_Test.r50_locem import resnet50
 
 
 #For LocEm
@@ -115,7 +116,7 @@ S=7
 B=2
 X=5
 C=30
-beta=512
+beta=64
 gamma=1
 image_size = 448
 
@@ -257,7 +258,8 @@ def main_worker(gpu, ngpus_per_node, args):
             model.features = torch.nn.DataParallel(model.features)
             model.cuda()
         else:
-            model = torch.nn.DataParallel(model).cuda()
+            #model = torch.nn.DataParallel(model).cuda()
+            model.to(torch.device('cuda:1'))
 
     # define loss function (criterion) and optimizer
     #criterion = nn.CrossEntropyLoss().cuda(args.gpu)
@@ -305,7 +307,7 @@ def main_worker(gpu, ngpus_per_node, args):
         root_datasets = '/mnt/data1/shravank/datasets/'
     elif socket.gethostname() == 'iq.cs.uoregon.edu':
         root_datasets = '/disk/shravank/datasets'
-    else
+    else:
         raise ValueError('Unknown host')
 
 
@@ -331,8 +333,8 @@ def main_worker(gpu, ngpus_per_node, args):
     writer = SummaryWriter(path_to_disk)
     ed = EmbedDatabase(d=beta)
 
-    detector = locEmDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
-    aps = new_validate(train_loader, detector, ed,writer)
+    detector = locEmDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.3,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
+    aps = new_validate(val_loader, detector, ed,writer)
 
     topk1,topk5 = ed.idAccuracy()
 
@@ -421,7 +423,7 @@ def compute_average_precision(recall, precision):
 
     return ap
        
-def evaluate(preds,targets,class_names,threshold=0.5): #original threshold 0.5
+def evaluate(preds,targets,class_names,threshold=0.3): #original threshold 0.5
     
     """ Compute mAP metric.
     Args:
@@ -620,15 +622,30 @@ def assign_uids(gt_boxes,uids,pd_boxes,embeddings,ed):
             x2, y2 = int(x2y2[0]), int(x2y2[1])
     uids = list(ints)
     '''
-    threshold = 0.7
+    threshold = 0.5
 
     if len(pd_boxes) == 0:
         print('No boxes detected - from assign')
         return
 
     #Uids are assigned to the predicted box with iou above threshold #T1 -0.62 T5-0.73
-    for i,gtb in enumerate(gt_boxes):
+    '''for i,gtb in enumerate(gt_boxes):
         for j,pdb in enumerate(pd_boxes):
+            x1y1, x2y2 = pdb
+            x1, y1 = int(x1y1[0]), int(x1y1[1])
+            x2, y2 = int(x2y2[0]), int(x2y2[1])
+            pbox = [x1,y1,x2,y2]
+            #Change assignment to max iou
+            if compute_iou(gtb,pbox) > threshold:
+                emb = embeddings[j].view(1,-1).numpy()
+                uid = np.array(uids[i]).reshape(-1)
+                #print('uid',uid)
+                #print('embeddings',emb.shape,uid.shape)
+                #print('embedding dtype',emb.dtype,uid.dtype)
+                ed.addIndex(emb,uid)
+                print('embedding added')'''
+    for j,pdb in enumerate(pd_boxes):
+        for i,gtb in enumerate(gt_boxes):
             x1y1, x2y2 = pdb
             x1, y1 = int(x1y1[0]), int(x1y1[1])
             x2, y2 = int(x2y2[0]), int(x2y2[1])

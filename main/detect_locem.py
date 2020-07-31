@@ -136,7 +136,8 @@ class locEmDetector():
         img = self.to_tensor(img)
         img = img[None, :, :, :]  # [3, image_size, image_size] -> [1, 3, image_size, image_size]
         img = Variable(img)
-        img = img.cuda()
+        #img = img.cuda()
+        img = img.to(torch.device('cuda:1'))
         
 
         

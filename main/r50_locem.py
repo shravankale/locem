@@ -169,7 +169,7 @@ class ResNet(nn.Module):
         self.locem_out = self.S*self.S*(self.X*self.B + self.C + self.beta)
         self.fc_locem = nn.Sequential(
             nn.Linear(2048,4096),
-            nn.Dropput(p=0.5),
+            nn.Dropout(p=0.5),
             nn.LeakyReLU(0.1),
             nn.Linear(4096,self.locem_out)
         )        
