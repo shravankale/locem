@@ -702,6 +702,28 @@ def assign_uids(gt_boxes,uids,pd_boxes,embeddings,ed):
         uid = np.array(uids[i]).reshape(-1)
         ed.addIndex(emb,uid)'''
 
+        #Uids are assigned to the box with the max IoU
+
+        '''for j,pdb in enumerate(pd_boxes):
+            embedding_index = []
+
+            for i, gtb in enumerate(gt_boxes):
+                x1y1, x2y2 = pdb
+                x1, y1 = int(x1y1[0]), int(x1y1[1])
+                x2, y2 = int(x2y2[0]), int(x2y2[1])
+                pbox = [x1,y1,x2,y2]
+
+                iou = compute_iou(gtb,pbox)
+                embedding_index.append(iou)
+            
+            embedding_index = np.array(embedding_index)
+            max_embedding_index = np.argmax(embedding_index)
+            emb = embeddings[max_embedding_index].view(1,-1).numpy()
+            uid = np.array(uids[i]).reshape(-1)
+            ed.addIndex(emb,uid)
+            print('embedding added')'''
+
+
 
     
     return 
