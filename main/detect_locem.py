@@ -40,6 +40,7 @@ class locEmDetector():
         self.loceEm = model
         #Set model to validate
         self.loceEm.eval()
+        
 
     def image2tensorboard(self,val_loader):
         '''
@@ -137,7 +138,7 @@ class locEmDetector():
         img = img[None, :, :, :]  # [3, image_size, image_size] -> [1, 3, image_size, image_size]
         img = Variable(img)
         #img = img.cuda()
-        img = img.to(torch.device('cuda:1'))
+        img = img.to(torch.device('cuda:0'))
         
 
         

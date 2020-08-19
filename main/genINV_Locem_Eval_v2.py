@@ -72,7 +72,7 @@ def drawBoundingBox_xxyy(img,x1,y1,x2,y2):
 class ImageNetVID(data.Dataset):
 
 
-    def __init__(self,root_datasets,path_to_dataset,split,image_size,S,B,C,X,transform=None):
+    def __init__(self,root_datasets,path_to_dataset,split,image_size,S,B,C,X,transform=None,crop=False):
         
         print('USING v101 of generator')
     
@@ -100,7 +100,18 @@ class ImageNetVID(data.Dataset):
         self.map_cat = self.map_vid.to_dict()['category_name']
 
         self.data_set = pd.read_pickle(path_to_dataset)
-        self.unique_keys = self.getKeys(pd.DataFrame(self.data_set))
+        self.unique_keys_old = self.getKeys(pd.DataFrame(self.data_set))
+
+        #self.unique_keys_old.to_pickle('../data/unique_keys.pkl')
+
+        self.unique_keys = pd.read_pickle('../data/unique_keys.pkl')
+        
+
+
+        self.uids_list = list(self.unique_keys.index)
+        #print(self.unique_keys)
+        #print(self.unique_keys)
+        #sys.exit(0)
         #self.data_set = self.data_set[:10]
 
         self.network_dim = image_size
@@ -110,6 +121,7 @@ class ImageNetVID(data.Dataset):
         self.to_tensor = transforms.ToTensor()
 
         self.S,self.B,self.C,self.X = S,B,C,X
+        self.crop = crop
 
     def encodeTarget_locem(self,target_bbox,target_class):
     
@@ -246,7 +258,7 @@ class ImageNetVID(data.Dataset):
             class_ids.append(row.cat_code-1)
             classnames.append(self.map_cat[row.cat_code-1])
             uid = self.unique_keys[
-            (self.unique_keys.cat_code==row.cat_code) & (self.unique_keys.snip_id==row.snip_id) & (self.unique_keys.trackid==row.trackid)
+            (self.unique_keys.cat_code==int(row.cat_code)) & (self.unique_keys.snip_id==row.snip_id) & (self.unique_keys.trackid==int(row.trackid))
             ].index.to_numpy()
             uids.append(int(uid))
         
@@ -305,20 +317,28 @@ class ImageNetVID(data.Dataset):
         class_ids = [sample.cat_code-1]
         class_name = [self.map_cat[sample.cat_code-1]]
         file_name = sample.snip_id+sample.file
+        #file_name = sample.file
+
         sample_uid = self.unique_keys[
-            (self.unique_keys.cat_code==sample.cat_code) & (self.unique_keys.snip_id==sample.snip_id) & (self.unique_keys.trackid==sample.trackid)
-            ].index.to_numpy()
+            (self.unique_keys.cat_code==int(sample.cat_code)) & (self.unique_keys.snip_id==sample.snip_id) & (self.unique_keys.trackid==int(sample.trackid))].index.to_numpy()
+        
         uids = [int(sample_uid)]
+
+        if self.crop:
+            sample_bbox = [[0,448,448,0]]
+            sample_img = sample_img[sample.ymin:sample.ymax,sample.xmin:sample.xmax,:]
+            sample_img = cv2.resize(sample_img, dsize=(448, 448), interpolation=cv2.INTER_LINEAR)
 
         #Add uids from other samples in getotherobjectsmethod
 
-        other_sample_boxes,other_sample_classnames,other_uids,other_class_ids = self.getOtherObjects(sample,self.data_set,self.all_data)
-        if len(other_sample_boxes) > 0:
-            sample_bbox = sample_bbox + other_sample_boxes
-            class_name = class_name + other_sample_classnames
-            #file_name = file_name + other_sample_filenames
-            uids = uids + other_uids
-            class_ids = class_ids + other_class_ids
+        if not self.crop:
+            other_sample_boxes,other_sample_classnames,other_uids,other_class_ids = self.getOtherObjects(sample,self.data_set,self.all_data)
+            if len(other_sample_boxes) > 0:
+                sample_bbox = sample_bbox + other_sample_boxes
+                class_name = class_name + other_sample_classnames
+                #file_name = file_name + other_sample_filenames
+                uids = uids + other_uids
+                class_ids = class_ids + other_class_ids
 
        #Do not normalize because detector unormalizes xywh(predited) hence the target should be unnormalized too
 

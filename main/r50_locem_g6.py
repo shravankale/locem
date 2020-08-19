@@ -4,6 +4,9 @@ from torch.nn import functional as F
 #from .utils import load_state_dict_from_url
 from torch.utils.model_zoo import load_url as load_state_dict_from_url
 
+#GeM Pooling
+#from gem_module import GeM
+from GeM_Pooling_Test.layer import Layer
 
 __all__ = ['ResNet', 'resnet18', 'resnet34', 'resnet50', 'resnet101',
            'resnet152', 'resnext50_32x4d', 'resnext101_32x8d',
@@ -121,7 +124,7 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers,S=7,B=2,C=30,X=5,beta=64, num_classes=1000, zero_init_residual=False,
+    def __init__(self, block, layers,S=7,B=2,C=30,X=5,beta=64,gem=False,p=3.0, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
         super(ResNet, self).__init__()
@@ -135,7 +138,13 @@ class ResNet(nn.Module):
         self.B = B
         self.C = C 
         self.X = X
-        self.beta = beta 
+        self.beta = beta
+        self.gem = gem
+
+        if self.gem:
+            self.p = p
+            self.p = torch.tensor(self.p)
+
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
@@ -157,22 +166,31 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[1])
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        #self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        #self.gem = GeM('GeM',p=torch.tensor(self.p))
+        if self.gem:
+            self.gem = Layer('gem',p=self.p)
+        else:
+            self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+
+        #self.gem = F.avg_pool2d(x.pow(self.p), (x.size(-2), x.size(-1))).pow(1.0 / self.p)
         #Custom for locem_multihead
         #num_classes = 7*7*(2*5+30+64)
         ##num_classes = self.S*self.S*(self.X*self.B + self.C + self.beta)
-        #self.l1 = nn.Linear(512 * block.expansion,4096)
+        ##self.l1 = nn.Linear(512 * block.expansion,4096)
         #self.relu2 = nn.ReLU()
-        ##self.fc_locem = nn.Linear(2048, num_classes) #2048 in g4
-        ##self.sigmoid = nn.Sigmoid()
+        ##self.fc_locem = nn.Linear(4096, num_classes) #2048 in g4
+        #self.sigmoid = nn.Sigmoid()
+        #self.l2_norm = F.normalize()
 
         self.locem_out = self.S*self.S*(self.X*self.B + self.C + self.beta)
         self.fc_locem = nn.Sequential(
             nn.Linear(2048,4096),
-            nn.Dropout(p=0.5),
             nn.LeakyReLU(0.1),
+            nn.Dropout(p=0.5),
             nn.Linear(4096,self.locem_out)
-        )        
+        )
+        #self.norm = F.normalize()
         
 
         for m in self.modules():
@@ -228,15 +246,20 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        x = self.avgpool(x)
+        #x = self.avgpool(x)
+        if self.gem:
+            x = self.gem(x)
+        else:
+            x = self.avgpool(x)
+
         x = torch.flatten(x, 1)
-        #x = self.l1(x)
+        ###x = F.relu(self.l1(x))
         #x = self.relu2(x)
-        ##x = self.fc_locem(x)
         x = self.fc_locem(x)
         x = x.view(-1,self.S,self.S,self.X*self.B+self.C+self.beta)
-        ##x[:,:,:,:self.X*self.B+self.C]=self.sigmoid(x[:,:,:,:self.X*self.B+self.C])
-        #x[:,:,:,40:]=F.normalize(x[:,:,:,40:],p=2)
+        #x[:,:,:,:self.X*self.B+self.C]=self.sigmoid(x[:,:,:,:self.X*self.B+self.C])
+        x[:,:,:,(self.X*self.B+self.C):]=F.normalize(x[:,:,:,(self.X*self.B+self.C):].clone(),dim=3,p=2)
+        #F.normalize(x[:,:,:,(self.X*self.B+self.C):],dim=3,out=x[:,:,:,(self.X*self.B+self.C):])
 
         return x
 

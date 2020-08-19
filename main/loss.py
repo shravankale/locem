@@ -106,6 +106,7 @@ class locemLoss(nn.Module):
         S, B, C = self.S, self.B, self.C
         N = (5 * B) + C    # 5=len([x, y, w, h, conf]
 
+
         batch_size = pred_tensor.size(0)
 
         #Are we considering only one of the targetd boxes, it should be fine since both have same values and confidence in targer

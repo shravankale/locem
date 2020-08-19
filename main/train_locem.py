@@ -20,9 +20,9 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-from r50_locem import resnet18
-from GeM_Pooling_Test.r50_locem import resnet50
-from r50_locem import resnet101
+from r50_locem_g6 import resnet50
+#eM_Pooling_Test.r50_locem import resnet50
+#from r50_locem import resnet101
 torch.autograd.set_detect_anomaly(True)
 
 
@@ -248,7 +248,7 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
         #model = models.__dict__[args.arch](pretrained=True)
-        model = resnet50(pretrained=True,S=S,B=B,C=C,X=X,beta=beta)
+        model = resnet50(pretrained=True,S=S,B=B,C=C,X=X,beta=beta,gem=False)
     else:
         print("=> creating model '{}'".format(args.arch))
         #model = models.__dict__[args.arch]()
@@ -364,6 +364,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 loc = 'cuda:{}'.format(args.gpu)
                 checkpoint = torch.load(args.resume, map_location=loc)
             args.start_epoch = checkpoint['epoch']
+            print("START_EPOCH",args.start_epoch)
             best_acc1 = checkpoint['best_acc1']
             if args.gpu is not None:
                 # best_acc1 may be from a checkpoint from a different GPU
@@ -592,8 +593,15 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
             images = images.to(torch.device('cuda:1'))
             target = target.to(torch.device('cuda:1'))
 
+        
+
         # compute output
         output = model(images)
+        #output[:,:,:,(X*B+C):]=F.normalize(output[:,:,:,(X*B+C):],p=2)
+
+        from debug import verify
+        #verify(output,target)
+
         #output = output.view(-1, S, S, 5 * B + C + beta)
         #Sigmoid for box+conf
         #softmax = nn.Softmax(dim=1)
