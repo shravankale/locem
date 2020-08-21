@@ -347,7 +347,7 @@ def main_worker(gpu, ngpus_per_node, args):
     loader_mode = 'val_loader'
     #uids_list = []
     
-    if loader_mode =='val_loader':
+    if loader_mode =='train_loader':
 
         uids_list = gen_val.uids_list
         aps = new_validate(val_loader, detector, ed,writer,uids_list)
@@ -1061,7 +1061,7 @@ def new_validate(loader, detector, ed,writer,uids_list):
             print('embedd-det',len(embeddings_detected))
             sys.exit(0)'''
             from debug import verify
-            verify(pred_tensor,target_tensor)
+            #verify(pred_tensor,target_tensor)
             
 
 
@@ -1168,7 +1168,7 @@ def new_validate(loader, detector, ed,writer,uids_list):
                     x2, y2 = int(x2y2[0]), int(x2y2[1])
                     preds_ev_uid[matched_uid].append([filename, prob, x1, y1, x2, y2])'''
 
-        #Unique ID Retreieval
+        '''#Unique ID Retreieval
         for i, (image,bbox,classname,filename, uids,class_ids,target_tensor) in enumerate(loader):
             for b in range(len(bbox)):
 
@@ -1194,7 +1194,7 @@ def new_validate(loader, detector, ed,writer,uids_list):
                     x1y1, x2y2 = box
                     x1, y1 = int(x1y1[0]), int(x1y1[1])
                     x2, y2 = int(x2y2[0]), int(x2y2[1])
-                    preds_ev_uid[t0].append([filename, prob, x1, y1, x2, y2,t5_matched_uid])
+                    preds_ev_uid[t0].append([filename, prob, x1, y1, x2, y2,t5_matched_uid])'''
         
         
 
@@ -1215,10 +1215,10 @@ def new_validate(loader, detector, ed,writer,uids_list):
 
     
 
-    aps = evaluate_retrieval(preds_ev_uid,targets_ev_uid,uid_names=uids_list)
+    #aps = evaluate_retrieval(preds_ev_uid,targets_ev_uid,uid_names=uids_list)
     
 
-    #aps = evaluate(preds_ev, targets_ev, class_names=list(class_dict))
+    aps = evaluate(preds_ev, targets_ev, class_names=list(class_dict))
     #aps = evaluate(preds_ev_uid, targets_ev_uid, class_names=uids_list)
     #aps = evaluate_uid(preds_ev_uid,targets_ev_uid,class_names=list(class_dict))
 

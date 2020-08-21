@@ -102,9 +102,9 @@ class ImageNetVID(data.Dataset):
         self.data_set = pd.read_pickle(path_to_dataset)
         self.unique_keys_old = self.getKeys(pd.DataFrame(self.data_set))
 
-        #self.unique_keys_old.to_pickle('../data/unique_keys.pkl')
+        self.unique_keys_old.to_pickle('../data/unique_keys_g6v5.01.pkl')
 
-        self.unique_keys = pd.read_pickle('../data/unique_keys.pkl')
+        self.unique_keys = pd.read_pickle('../data/unique_keys_g6v5.01.pkl')
         
 
 
@@ -112,7 +112,7 @@ class ImageNetVID(data.Dataset):
         #print(self.unique_keys)
         #print(self.unique_keys)
         #sys.exit(0)
-        #self.data_set = self.data_set[:10]
+        self.data_set = self.data_set[:100]
 
         self.network_dim = image_size
         mean_rgb = [122.67891434, 116.66876762, 104.00698793]

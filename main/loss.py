@@ -286,5 +286,11 @@ class locemLoss(nn.Module):
         loss_class = loss_class/float(batch_size)
         loss_boxes = (self.lambda_coord * (loss_xy + loss_wh))/float(batch_size)
         
-        
+        '''print('loss_class',loss_class)
+        print('loss_obj',loss_obj + self.lambda_noobj * loss_noobj)
+        print('loss_boxes',loss_boxes)
+        print('loss_triplet',loss_triplet)
+        import sys
+        sys.exit(0)'''
+
         return loss, loss_class, loss_triplet, loss_boxes

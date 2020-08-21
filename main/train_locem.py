@@ -345,7 +345,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # define loss function (criterion) and optimizer
     #criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    criterion = locemLoss(feature_size=S, num_bboxes=B, num_classes=C, lambda_coord=5.0, lambda_noobj=0.5,beta=beta,gamma=gamma)
+    criterion = locemLoss(feature_size=S, num_bboxes=B, num_classes=C, lambda_coord=2.0, lambda_noobj=1,beta=beta,gamma=gamma)
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
@@ -728,6 +728,7 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
             losses.update(loss.item(), 1)
             loss_class_m.update(loss_class.item(),1)
             loss_triplet_m.update(loss_triplet.item(),1)
+            loss_boxes_m.update(loss_boxes.item(),1)
 
             top1.update(acc1[0], 1)
             top5.update(acc5[0], 1)
