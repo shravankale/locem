@@ -23,8 +23,8 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 torch.autograd.set_detect_anomaly(True)
 from torchvision.utils import make_grid
-#from r50_locem_g4 import resnet50
-from GeM_Pooling_Test.r50_locem import resnet50
+from r50_locem_g6 import resnet50
+#from GeM_Pooling_Test.r50_locem import resnet50
 from random import random
 from evaluate_map import evaluate_retrieval
 
@@ -218,7 +218,7 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.pretrained:
         print("=> using pre-trained model '{}'".format(args.arch))
         #model = models.__dict__[args.arch](pretrained=True)
-        model = resnet50(pretrained=True,S=S,B=B,C=C,X=X,beta=beta,gem=True)
+        model = resnet50(pretrained=True,S=S,B=B,C=C,X=X,beta=beta,gem=False)
     else:
         print("=> creating model '{}'".format(args.arch))
         #model = models.__dict__[args.arch]()
@@ -265,8 +265,8 @@ def main_worker(gpu, ngpus_per_node, args):
             model.cuda()
         else:
             print('HERE')
-            #model = torch.nn.DataParallel(model).cuda()
-            model.to(torch.device('cuda:0'))
+            model = torch.nn.DataParallel(model).cuda()
+            #model.to(torch.device('cuda:0'))
 
     # define loss function (criterion) and optimizer
     #criterion = nn.CrossEntropyLoss().cuda(args.gpu)
@@ -344,10 +344,10 @@ def main_worker(gpu, ngpus_per_node, args):
 
     detector = locEmDetector(model,conf_thresh=0.1, prob_thresh=0.1, nms_thresh=0.5,S=S,B=B,C=C,X=X,beta=beta,image_size=image_size)
 
-    loader_mode = 'val_loader'
+    loader_mode = 'train_loader'
     #uids_list = []
     
-    if loader_mode =='train_loader':
+    if loader_mode =='val_loader':
 
         uids_list = gen_val.uids_list
         aps = new_validate(val_loader, detector, ed,writer,uids_list)

@@ -55,7 +55,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model architecture: ' +
                         ' | '.join(model_names) +
                         ' (default: resnet18)')
-parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=90, type=int, metavar='N',
                     help='number of total epochs to run')
@@ -345,7 +345,7 @@ def main_worker(gpu, ngpus_per_node, args):
 
     # define loss function (criterion) and optimizer
     #criterion = nn.CrossEntropyLoss().cuda(args.gpu)
-    criterion = locemLoss(feature_size=S, num_bboxes=B, num_classes=C, lambda_coord=2.0, lambda_noobj=1,beta=beta,gamma=gamma)
+    criterion = locemLoss(feature_size=S, num_bboxes=B, num_classes=C, lambda_coord=5.0, lambda_noobj=0.5,beta=beta,gamma=gamma)
 
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
@@ -561,11 +561,13 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
     loss_class_m = AverageMeter('Class_Loss',':.4e')
     loss_triplet_m = AverageMeter('Triplet_Loss',':.4e')
     loss_boxes_m = AverageMeter('Boxes_Loss',':.4e')
+    loss_obj_m = AverageMeter('Boxes_Loss',':.4e')
+    loss_noobj_m = AverageMeter('Boxes_Loss',':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
-        [batch_time, data_time, losses,loss_class_m,loss_triplet_m,loss_boxes_m, top1, top5],
+        [batch_time, data_time, losses,loss_class_m,loss_triplet_m,loss_boxes_m,loss_obj_m,loss_noobj_m, top1, top5],
         prefix="Epoch: [{}]".format(epoch))
 
     
@@ -610,7 +612,7 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C])
         #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C]).requires_grad
         #output[:,:,:,X*B+C:] = sigmoid(output[:,:,:,X*B+C:])
-        loss, loss_class, loss_triplet,loss_boxes = criterion(output, target)
+        loss, loss_class, loss_triplet,loss_boxes,loss_obj,loss_noobj = criterion(output, target)
         #print(loss.item())
         #print(loss_class.item())
         #print(loss_triplet.item())
@@ -626,6 +628,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
         loss_class_m.update(loss_class.item(),1)
         loss_triplet_m.update(loss_triplet.item(),1)
         loss_boxes_m.update(loss_boxes.item(),1)
+        loss_obj_m.update(loss_obj.item(),1)
+        loss_noobj_m.update(loss_noobj.item(),1)
 
         top1.update(acc1[0], 1)
         top5.update(acc5[0], 1)
@@ -655,6 +659,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer):
     writer.add_scalar('Train/Class_Loss', loss_class_m.avg, epoch)
     writer.add_scalar('Train/Triplet_Loss', loss_triplet_m.avg, epoch)
     writer.add_scalar('Train/Boxes_Loss',loss_boxes_m.avg,epoch)
+    writer.add_scalar('Train/Object_Loss',loss_obj_m.avg,epoch)
+    writer.add_scalar('Train/NoObject_Loss',loss_noobj_m.avg,epoch)
     writer.add_scalar('Train/Accuracy/Top1', t1, epoch)
     writer.add_scalar('Train/Accuracy/Top5', t5, epoch)
     writer.flush()
@@ -680,11 +686,13 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
     loss_class_m = AverageMeter('Class_Loss',':.4e')
     loss_triplet_m = AverageMeter('Triplet_Loss',':.4e')
     loss_boxes_m = AverageMeter('Boxes_Loss',':.4e')
+    loss_obj_m = AverageMeter('Boxes_Loss',':.4e')
+    loss_noobj_m = AverageMeter('Boxes_Loss',':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
         len(val_loader),
-        [batch_time, losses,loss_class_m,loss_triplet_m,loss_boxes_m, top1, top5],
+        [batch_time, losses,loss_class_m,loss_triplet_m,loss_boxes_m,loss_obj_m,loss_noobj_m, top1, top5],
         prefix='Test: ')
 
     # switch to evaluate mode
@@ -718,7 +726,7 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
             #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C])
             #output[:,:,:,X*B:X*B+C] = softmax(output[:,:,:,X*B:X*B+C]).requires_grad
             #output[:,:,:,X*B+C:] = sigmoid(output[:,:,:,X*B+C:])
-            loss, loss_class, loss_triplet,loss_boxes = criterion(output, target)
+            loss, loss_class, loss_triplet,loss_boxes,loss_obj,loss_noobj = criterion(output, target)
 
             # measure accuracy and record loss
             #CHECK! The accuracy needs to be fed from the decoderTarget output
@@ -729,6 +737,8 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
             loss_class_m.update(loss_class.item(),1)
             loss_triplet_m.update(loss_triplet.item(),1)
             loss_boxes_m.update(loss_boxes.item(),1)
+            loss_obj_m.update(loss_obj.item(),1)
+            loss_noobj_m.update(loss_noobj.item(),1)
 
             top1.update(acc1[0], 1)
             top5.update(acc5[0], 1)
@@ -763,6 +773,8 @@ def validate(val_loader, model, criterion, args, writer, epoch, mini_display=Fal
             writer.add_scalar('Validate/Class_Loss', loss_class_m.avg, epoch)
             writer.add_scalar('Validate/Triplet_Loss', loss_triplet_m.avg, epoch)
             writer.add_scalar('Validate/Boxes_Loss',loss_boxes_m.avg,epoch)
+            writer.add_scalar('Validate/Object_Loss',loss_obj_m.avg,epoch)
+            writer.add_scalar('Validate/NoObject_Loss',loss_noobj_m.avg,epoch)
             writer.add_scalar('Validate/Accuracy/Top1', t1, epoch)
             writer.add_scalar('Validate/Accuracy/Top5', t5, epoch)
             writer.flush()
@@ -890,7 +902,7 @@ def adjust_learning_rate(optimizer, epoch, args):
         lr = 0.001
     elif epoch >= 75:
         lr = 0.001
-    elif epoch >= 105:
+    elif epoch >= 155: #105
         lr = 0.0001
     else: 
         lr = 0.0001

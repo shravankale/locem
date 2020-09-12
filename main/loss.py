@@ -271,7 +271,14 @@ class locemLoss(nn.Module):
 
         # Total loss
         #CHEK! Should triplet_loss be divided by the number of samples?
-        loss = self.lambda_coord * (loss_xy + loss_wh) + loss_obj + self.lambda_noobj * loss_noobj + loss_class 
+
+        #loss = self.lambda_coord * (loss_xy + loss_wh) + loss_obj + self.lambda_noobj * loss_noobj + loss_class 
+        #loss = (loss / float(batch_size))+ loss_triplet
+
+        loss_boxes = self.lambda_coord * (loss_xy + loss_wh)
+        loss_noobj = self.lambda_noobj * loss_noobj
+
+        loss = loss_boxes + loss_obj + loss_noobj + loss_class
         loss = (loss / float(batch_size))+ loss_triplet
 
         
@@ -283,8 +290,15 @@ class locemLoss(nn.Module):
         print('LOSS TRIPLET TYPE',loss_triplet)
         print('LOSS',loss)'''
 
-        loss_class = loss_class/float(batch_size)
-        loss_boxes = (self.lambda_coord * (loss_xy + loss_wh))/float(batch_size)
+        log_loss_class = loss_class/float(batch_size)
+        log_loss_boxes = loss_boxes/float(batch_size)
+        log_loss_obj = loss_obj/float(batch_size)
+        log_loss_noobj = loss_noobj/float(batch_size)
+
+        '''for loss in [loss, log_loss_class, loss_triplet, log_loss_boxes, log_loss_obj, log_loss_noobj]:
+            print(loss.item())
+        sys.exit(0)'''
+        
         
         '''print('loss_class',loss_class)
         print('loss_obj',loss_obj + self.lambda_noobj * loss_noobj)
@@ -293,4 +307,4 @@ class locemLoss(nn.Module):
         import sys
         sys.exit(0)'''
 
-        return loss, loss_class, loss_triplet, loss_boxes
+        return loss, log_loss_class, loss_triplet, log_loss_boxes, log_loss_obj, log_loss_noobj
